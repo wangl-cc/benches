@@ -1,4 +1,6 @@
-use divan::{Bencher, black_box};
+use std::hint::black_box;
+
+use divan::Bencher;
 use rand::{RngCore, SeedableRng};
 
 fn main() {
@@ -62,13 +64,13 @@ mod u64_generation {
 mod bytes_generation {
     use super::*;
 
-    /// Buffer sizes to test (from 64B to 1MB)
+    /// Buffer sizes to fill (from 16B to 1MiB)
     const SIZES: &[usize] = &[
-        1 << 6,  // 64 B
-        1 << 10, // 1 KB
-        1 << 14, // 16 KB
-        1 << 18, // 256 KB
-        1 << 20, // 1 MB
+        1 << 4,  // 16 B
+        1 << 8,  // 256 B
+        1 << 12, // 8 KiB
+        1 << 16, // 64 KiB
+        1 << 20, // 1 MiB
     ];
 
     #[divan::bench(args = SIZES)]
