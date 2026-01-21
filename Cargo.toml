@@ -1,16 +1,23 @@
 [package]
-name = "hash-comparison"
+name = "benches"
 version = "0.1.0"
 edition = "2024"
+description = "Benchmarking for common algorithms "
 license = "MIT OR Apache-2.0"
 
 [[bench]]
 harness = false
 name = "hash_comparison"
 
+[[bench]]
+harness = false
+name = "rng_comparison"
+
 [dependencies]
 blake3 = "1.5"
 divan = "0.1.17"
 rand = "0.9"
+rand_pcg = "0.9"
+rand_xoshiro = "0.7"
 sha2 = { version = "0.10", features = ["asm"] }
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
