@@ -1,0 +1,15 @@
+[package]
+name = "hash-comparison"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[[bench]]
+harness = false
+name = "hash_comparison"
+
+[dependencies]
+blake3 = "1.5"
+divan = "0.1.17"
+rand = "0.9"
+sha2 = { version = "0.10", features = ["asm"] }
