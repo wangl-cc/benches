@@ -37,6 +37,6 @@
 - XXHASH3 is much faster than cryptographic hashes (SHA2/BLAKE3); at moderately larger sizes it can be 10x+ faster than the fastest crypto hash.
 - On Zen 5, XXHASH3_128 is slightly faster than XXHASH3_64; on M4 it is the opposite.
 - For cryptographic hashes, SHA256 is better at small sizes (16B, 256B) on both architectures.
-- On Zen 5, Blake3 and SHA256 are close around 4 KiB (Blake3 slightly ahead; likely tied around 1-2 KiB), while larger sizes favor SHA256 clearly.
+- On Zen 5, Blake3 and SHA256 are close around 4 KiB (Blake3 slightly ahead; likely tied around 1-2 KiB), while larger sizes favor Blake3 clearly.
 - On M4, SHA256 remains faster than Blake3 even at 16 MiB, though the gap narrows as size increases.
 - SHA512 is consistently the slowest of the three cryptographic hashes.
