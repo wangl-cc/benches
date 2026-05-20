@@ -130,6 +130,7 @@ fn write_host_readme(
 fn scope_title(scope: Scope) -> &'static str {
     match scope {
         Scope::Hash => "Hash",
+        Scope::Map => "Map",
         Scope::Prng => "PRNG",
     }
 }

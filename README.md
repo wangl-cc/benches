@@ -12,6 +12,8 @@ Current benchmark crates:
 
 - [bench_hash/README.md](bench_hash/README.md): non-cryptographic and
   cryptographic hash throughput.
+- [bench_map/README.md](bench_map/README.md): map operation throughput across
+  standard and order-preserving map implementations.
 - [bench_prng/README.md](bench_prng/README.md): PRNG generation throughput.
 
 ## Workspace Layout
@@ -38,6 +40,7 @@ Run only one scope:
 
 ```bash
 cargo xr --scope hash
+cargo xr --scope map
 cargo xr --scope prng
 ```
 
@@ -65,7 +68,7 @@ Aggregate all platform results into crate-local `RESULTS.md`:
 cargo xa
 ```
 
-Note: `xtask` currently aggregates configured scopes (`hash`, `prng`). New
+Note: `xtask` currently aggregates configured scopes (`hash`, `map`, `prng`). New
 scopes can be added by extending the scope configuration in `xtask`.
 
 ## Result Files

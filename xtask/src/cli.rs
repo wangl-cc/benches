@@ -49,6 +49,7 @@ pub struct CollectOpts {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum ScopeValue {
     Hash,
+    Map,
     Prng,
     All,
 }
@@ -58,6 +59,7 @@ impl ScopeValue {
         match self {
             ScopeValue::All => Scope::all(),
             ScopeValue::Hash => &[Scope::Hash],
+            ScopeValue::Map => &[Scope::Map],
             ScopeValue::Prng => &[Scope::Prng],
         }
     }
