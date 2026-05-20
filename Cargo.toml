@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "bench_hash",
+  "bench_map",
   "bench_prng",
   "xtask",
 ]
@@ -17,6 +18,8 @@ blake3 = "1.5"
 criterion = "0.8"
 digest = "0.10.7"
 gxhash = "3"
+indexmap = "2"
+nohash-hasher = "0.2"
 rand = "0.9"
 rand_pcg = "0.9"
 rand_xoshiro = "0.7"

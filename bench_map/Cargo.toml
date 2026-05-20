@@ -1,0 +1,18 @@
+[package]
+name = "bench_map"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[[bench]]
+harness = false
+name = "map_comparison"
+
+[dependencies]
+indexmap = { workspace = true }
+nohash-hasher = { workspace = true }
+rand = { workspace = true }
+rapidhash = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
