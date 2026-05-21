@@ -19,7 +19,7 @@ Current benchmark crates:
 - `bench_*/`: benchmark crates.
 - `xtask/`: benchmark orchestration CLI (`run`, `collect`, `aggregate`).
 - `results/{platform}/`: collected charts and platform metadata.
-- `site/`: PNPM/Vite benchmark dashboard for local and GitHub Pages viewing.
+- `site/`: PNPM/Vite benchmark dashboard for local and Cloudflare Pages viewing.
 - `bench_*/RESULTS.md`: cross-platform aggregated result pages.
 
 ## Quick Start
@@ -106,6 +106,14 @@ GitHub Actions workflow
 [`aggregate-results.yml`](.github/workflows/aggregate-results.yml) will
 re-run aggregation when `results/**` changes and auto-commit updated
 `bench_*/RESULTS.md`.
+
+GitHub Actions workflow
+[`cloudflare-pages.yml`](.github/workflows/cloudflare-pages.yml) builds and
+deploys the dashboard to Cloudflare Pages. The workflow expects repository
+secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`; it deploys to the
+`benches` Pages project by default, or to `CLOUDFLARE_PAGES_PROJECT_NAME` when
+that repository variable is set. Pull requests from this repository deploy as
+Cloudflare Pages previews.
 
 ## Development Commands
 
