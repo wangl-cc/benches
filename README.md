@@ -19,6 +19,7 @@ Current benchmark crates:
 - `bench_*/`: benchmark crates.
 - `xtask/`: benchmark orchestration CLI (`run`, `collect`, `aggregate`).
 - `results/{platform}/`: collected charts and platform metadata.
+- `site/`: PNPM/Vite benchmark dashboard for local and GitHub Pages viewing.
 - `bench_*/RESULTS.md`: cross-platform aggregated result pages.
 
 ## Quick Start
@@ -65,6 +66,14 @@ Aggregate all platform results into crate-local `RESULTS.md`:
 cargo xa
 ```
 
+Run the dashboard locally:
+
+```bash
+cd site
+pnpm install
+pnpm run dev
+```
+
 Note: `xtask` currently aggregates configured scopes (`hash`, `prng`). New
 scopes can be added by extending the scope configuration in `xtask`.
 
@@ -75,6 +84,10 @@ For each platform:
 - `results/{platform}/README.md`
 - `results/{platform}/environment.ini`
 - `results/{platform}/charts/*.svg`
+
+`cargo xa` also writes `site/public/results.json` for the dashboard and stages
+the SVG chart assets under `site/public/results/` for local serving/builds.
+The staged chart assets are ignored by git because they mirror `results/`.
 
 `environment.ini` uses a minimal INI format:
 

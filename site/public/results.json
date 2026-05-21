@@ -1,0 +1,97 @@
+{
+  "generatedAt": "2026-02-28T16:44:54+08:00",
+  "hosts": [
+    {
+      "id": "amd-ryzen-9-9950x-16-core-processor",
+      "title": "AMD Ryzen 9 9950X 16-Core Processor",
+      "environment": {
+        "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+        "os": "Fedora Linux 43 (Container Image)",
+        "kernel": "Linux 6.18.12-200.fc43.x86_64",
+        "rustc": "rustc 1.92.0 (ded5c06cf 2025-12-08)",
+        "llvm": "21.1.3"
+      }
+    },
+    {
+      "id": "apple-m1",
+      "title": "Apple M1",
+      "environment": {
+        "cpu": "Apple M1",
+        "os": "macOS 26.3 (25D125)",
+        "kernel": "Darwin 25.3.0",
+        "rustc": "rustc 1.93.1 (01f6ddf75 2026-02-11)",
+        "llvm": "21.1.8"
+      }
+    }
+  ],
+  "scopes": [
+    {
+      "id": "hash",
+      "title": "Hash",
+      "charts": [
+        {
+          "id": "non_cryptographic_hash_lines_throughput",
+          "title": "Non-Cryptographic Hash Throughput",
+          "hosts": [
+            {
+              "hostId": "amd-ryzen-9-9950x-16-core-processor",
+              "src": "results/amd-ryzen-9-9950x-16-core-processor/charts/non_cryptographic_hash_lines_throughput.svg"
+            },
+            {
+              "hostId": "apple-m1",
+              "src": "results/apple-m1/charts/non_cryptographic_hash_lines_throughput.svg"
+            }
+          ]
+        },
+        {
+          "id": "cryptographic_hash_lines_throughput",
+          "title": "Cryptographic Hash Throughput",
+          "hosts": [
+            {
+              "hostId": "amd-ryzen-9-9950x-16-core-processor",
+              "src": "results/amd-ryzen-9-9950x-16-core-processor/charts/cryptographic_hash_lines_throughput.svg"
+            },
+            {
+              "hostId": "apple-m1",
+              "src": "results/apple-m1/charts/cryptographic_hash_lines_throughput.svg"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "prng",
+      "title": "PRNG",
+      "charts": [
+        {
+          "id": "u64_generation_lines_throughput",
+          "title": "u64 Generation Throughput",
+          "hosts": [
+            {
+              "hostId": "amd-ryzen-9-9950x-16-core-processor",
+              "src": "results/amd-ryzen-9-9950x-16-core-processor/charts/u64_generation_lines_throughput.svg"
+            },
+            {
+              "hostId": "apple-m1",
+              "src": "results/apple-m1/charts/u64_generation_lines_throughput.svg"
+            }
+          ]
+        },
+        {
+          "id": "bytes_generation_lines_throughput",
+          "title": "Bytes Generation Throughput",
+          "hosts": [
+            {
+              "hostId": "amd-ryzen-9-9950x-16-core-processor",
+              "src": "results/amd-ryzen-9-9950x-16-core-processor/charts/bytes_generation_lines_throughput.svg"
+            },
+            {
+              "hostId": "apple-m1",
+              "src": "results/apple-m1/charts/bytes_generation_lines_throughput.svg"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

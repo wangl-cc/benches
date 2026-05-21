@@ -13,6 +13,15 @@ pub struct BenchmarkEnvironment {
     compiler: CompilerSpec,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvironmentSummary {
+    pub cpu: String,
+    pub os: String,
+    pub kernel: String,
+    pub rustc: String,
+    pub llvm: String,
+}
+
 impl BenchmarkEnvironment {
     pub fn detect() -> Self {
         Self {
@@ -123,16 +132,32 @@ impl BenchmarkEnvironment {
     fn cpu(&self) -> &str {
         self.cpu.as_deref().unwrap_or(consts::ARCH)
     }
+
+    fn summary(&self) -> EnvironmentSummary {
+        EnvironmentSummary {
+            cpu: self.cpu().to_owned(),
+            os: self.os().to_owned(),
+            kernel: self.kernel_release().to_owned(),
+            rustc: self.compiler.rustc.clone(),
+            llvm: self.compiler.llvm.clone(),
+        }
+    }
 }
 
 pub fn read_cpu_from_metadata(result_dir: &Path) -> Option<String> {
-    let raw = read_metadata_raw(result_dir)?;
-    let environment = BenchmarkEnvironment::decode_ini(&raw).ok()?;
-    let cpu = environment.cpu().trim();
+    let environment = read_environment_summary(result_dir)?;
+    let cpu = environment.cpu.trim();
     if cpu.is_empty() {
         return None;
     }
     Some(cpu.to_owned())
+}
+
+pub fn read_environment_summary(result_dir: &Path) -> Option<EnvironmentSummary> {
+    let raw = read_metadata_raw(result_dir)?;
+    BenchmarkEnvironment::decode_ini(&raw)
+        .ok()
+        .map(|environment| environment.summary())
 }
 
 fn read_metadata_raw(result_dir: &Path) -> Option<String> {

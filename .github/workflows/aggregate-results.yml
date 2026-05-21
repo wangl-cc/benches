@@ -23,10 +23,10 @@ jobs:
       - name: Commit updated aggregate files
         run: |
           shopt -s nullglob
-          result_files=(bench_*/RESULTS.md)
+          result_files=(bench_*/RESULTS.md site/public/results.json)
 
           if [ "${#result_files[@]}" -eq 0 ]; then
-            echo "No RESULTS.md files found."
+            echo "No aggregate files found."
             exit 0
           fi
 

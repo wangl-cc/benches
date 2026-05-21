@@ -1,1 +1,5 @@
 /target
+/.pnpm-store
+/site/dist
+/site/node_modules
+/site/public/results
