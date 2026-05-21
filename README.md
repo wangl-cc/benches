@@ -27,7 +27,7 @@ Current benchmark crates:
 Prerequisites:
 
 - Rust toolchain (`stable` is enough for running/collecting/aggregating).
-- Node.js 24 and PNPM 11 for the dashboard.
+- Node.js 26 and PNPM 11 for the dashboard.
 - `cargo +nightly fmt --all` if you want to apply formatting.
 
 Run all benchmark scopes:
@@ -115,7 +115,7 @@ workflow. Create a Pages project connected to this repository with:
 - Root directory: `site`
 - Build command: `pnpm run build:site`
 - Build output directory: `dist`
-- Environment variable: `NODE_VERSION=24`
+- Environment variable: `NODE_VERSION=26`
 - Environment variable: `PNPM_VERSION=11`
 
 Pull requests from this repository will receive Cloudflare Pages preview URLs.
