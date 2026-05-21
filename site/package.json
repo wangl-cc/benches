@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "cargo xa && vite",
     "build": "cargo xa && tsc --noEmit && vite build",
+    "build:site": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
