@@ -213,8 +213,7 @@
     width: min(360px, 100%);
   }
 
-  .rail-heading,
-  .axis-label {
+  .rail-heading {
     color: var(--text-muted);
     font-size: 10px;
     font-weight: 700;
@@ -655,18 +654,18 @@
     min-height: 0;
   }
 
-  .grouped-bar-list {
+  .metric-list {
     display: grid;
     gap: 12px;
     padding-top: 2px;
   }
 
-  .grouped-bar-group {
+  .metric-group {
     display: grid;
     gap: 4px;
   }
 
-  .grouped-bar-group > strong {
+  .metric-group > strong {
     overflow: hidden;
     color: var(--text);
     font-size: 10.5px;
@@ -676,9 +675,8 @@
     white-space: nowrap;
   }
 
-  .grouped-bar-row {
+  .metric-row {
     display: grid;
-    grid-template-columns: minmax(94px, 0.36fr) minmax(96px, 1fr) auto;
     align-items: center;
     gap: 8px;
     min-height: 20px;
@@ -693,17 +691,29 @@
       opacity 140ms ease;
   }
 
-  .grouped-bar-row:hover,
-  .grouped-bar-row:focus-visible {
+  .metric-row--bar {
+    grid-template-columns: minmax(94px, 0.36fr) minmax(96px, 1fr) auto;
+  }
+
+  .metric-row--latency {
+    grid-template-columns: minmax(80px, 0.35fr) minmax(108px, 1fr) auto;
+  }
+
+  .metric-row--stability {
+    grid-template-columns: minmax(76px, 0.42fr) 7px minmax(70px, 1fr) auto;
+  }
+
+  .metric-row:hover,
+  .metric-row:focus-visible {
     outline: 0;
     background: var(--surface-selected);
   }
 
-  .grouped-bar-row.dimmed {
+  .metric-row.dimmed {
     opacity: 0.32;
   }
 
-  .grouped-bar-label {
+  .metric-label {
     min-width: 0;
     overflow: hidden;
     color: var(--text-soft);
@@ -713,105 +723,51 @@
     white-space: nowrap;
   }
 
-  .grouped-bar-track {
-    height: 8px;
+  .metric-track {
     border-radius: 999px;
+  }
+
+  .metric-track--bar,
+  .metric-track--stability {
     background: #f1f5f9;
   }
 
-  .grouped-bar-track i {
+  .metric-track--bar {
+    height: 8px;
+  }
+
+  .metric-track--stability {
+    height: 7px;
+  }
+
+  .metric-track--bar i,
+  .metric-track--stability i {
     display: block;
     height: 100%;
     border-radius: inherit;
+  }
+
+  .metric-track--bar i {
     opacity: 0.82;
   }
 
-  .grouped-bar-value {
+  .metric-track--stability i {
+    opacity: 0.78;
+  }
+
+  .metric-value {
     color: var(--text-soft);
     font-size: 10px;
     font-weight: 760;
     white-space: nowrap;
   }
 
-  .latency-list,
-  .stability-list {
-    display: grid;
-    gap: 12px;
-    padding-top: 2px;
-  }
-
-  .latency-group,
-  .stability-group {
-    display: grid;
-    gap: 4px;
-  }
-
-  .latency-group > strong,
-  .stability-group > strong {
-    overflow: hidden;
-    color: var(--text);
-    font-size: 10.5px;
-    font-weight: 780;
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
-  .latency-row,
-  .stability-row {
-    display: grid;
-    align-items: center;
-    gap: 8px;
-    min-height: 20px;
-    border: 0;
-    border-radius: 6px;
-    background: transparent;
-    color: var(--text-soft);
-    padding: 3px 4px;
-    text-align: left;
-    transition:
-      background 140ms ease,
-      opacity 140ms ease;
-  }
-
-  .latency-row {
-    grid-template-columns: minmax(80px, 0.35fr) minmax(108px, 1fr) auto;
-  }
-
-  .stability-row {
-    grid-template-columns: minmax(76px, 0.42fr) 7px minmax(70px, 1fr) auto;
-  }
-
-  .latency-row:hover,
-  .latency-row:focus-visible,
-  .stability-row:hover,
-  .stability-row:focus-visible {
-    outline: 0;
-    background: var(--surface-selected);
-  }
-
-  .latency-row.dimmed,
-  .stability-row.dimmed {
-    opacity: 0.32;
-  }
-
-  .latency-label,
-  .stability-label {
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text-soft);
-    font-size: 10.5px;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .latency-track {
+  .metric-track--latency {
     position: relative;
     height: 10px;
   }
 
-  .latency-track::before {
+  .metric-track--latency::before {
     position: absolute;
     top: 50%;
     right: 0;
@@ -861,32 +817,11 @@
     height: 10px;
   }
 
-  .latency-value,
-  .stability-value {
-    color: var(--text-soft);
-    font-size: 10px;
-    font-weight: 760;
-    white-space: nowrap;
-  }
-
   .stability-swatch {
     width: 7px;
     height: 7px;
     border-radius: 999px;
     box-shadow: 0 0 0 2px var(--surface-panel);
-  }
-
-  .stability-track {
-    height: 7px;
-    border-radius: 999px;
-    background: #f1f5f9;
-  }
-
-  .stability-track i {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    opacity: 0.78;
   }
 
   .sr-only {
@@ -896,57 +831,6 @@
     overflow: hidden;
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
-  }
-
-  .axis-label {
-    fill: var(--text-muted);
-  }
-
-  .chart-grid-line {
-    stroke: var(--grid-line);
-    stroke-width: 1;
-  }
-
-  .selected-size-line {
-    stroke: var(--blue);
-    stroke-width: 1.4;
-    stroke-dasharray: 4 4;
-    opacity: 0.76;
-    pointer-events: none;
-  }
-
-  .size-hit-zone rect {
-    fill: transparent;
-    cursor: crosshair;
-    pointer-events: all;
-  }
-
-  .size-hit-zone:hover rect,
-  .size-hit-zone:focus-visible rect {
-    fill: rgb(37 99 235 / 0.045);
-  }
-
-  .size-hit-zone:focus-visible {
-    outline: 0;
-  }
-
-  .visx-axis line,
-  .visx-axis path {
-    shape-rendering: crispEdges;
-  }
-
-  .chart-row {
-    cursor: pointer;
-    transition: opacity 140ms ease;
-  }
-
-  .chart-series {
-    transition: opacity 140ms ease;
-  }
-
-  .chart-row.dimmed,
-  .chart-series.dimmed {
-    opacity: 0.24;
   }
 
   .chart-legend {

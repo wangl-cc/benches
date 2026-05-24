@@ -5,6 +5,7 @@ import { buildStabilityGroups, buildTailLatencyBands } from "../model";
 import type { GroupedBarGroup, GroupedBarRow, RankingGroup, ResultRow, TailLatencyMetric } from "../types";
 import { GroupedBarPanel } from "./GroupedBarPanel";
 import { ControlGroup, EmptyPanel, PanelHeader, SegmentedControl } from "./common";
+import { MetricBar, MetricGroupList, MetricRow } from "./MetricGroupList";
 
 export function PerformanceRankingChart({
   groups,
@@ -103,48 +104,46 @@ export function TailLatencyPanel({
       {tailRows.length === 0 ? (
         <EmptyPanel title="No tail latency in this run" />
       ) : (
-        <div className="latency-list" role="img" aria-label={`${tailMetric.toUpperCase()} sorted tail latency plot`}>
-          {tailGroups.map((group) => (
-            <div className="latency-group" key={group.id}>
-              <strong>{group.label}</strong>
-              {group.rows.map((row) => {
-                const dimmed = Boolean(
-                  (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
-                    (focusedPlatform && focusedPlatform !== row.hostId),
-                );
-                return (
-                  <button
-                    key={row.id}
-                    type="button"
-                    className={dimmed ? "latency-row dimmed" : "latency-row"}
-                    onClick={() => {
-                      if (groupMode === "algorithm") {
-                        onFocusPlatform(row.hostId);
-                      } else {
-                        onFocusAlgorithm(row.algorithm);
-                      }
-                    }}
-                  >
-                    <span className="latency-label">{row.label}</span>
-                    <span className="latency-track">
-                      <i className="latency-range" style={{ left: position(row.p50), width: `calc(${position(row.p95)} - ${position(row.p50)})` }} />
-                      <i className="latency-marker p50" style={{ left: position(row.p50), background: row.color }}>
-                        <span className="sr-only">P50 {formatLatencyValue(row.p50 ?? 0)}</span>
-                      </i>
-                      <i className="latency-marker p90" style={{ left: position(row.p90), background: row.color }}>
-                        <span className="sr-only">P90 {formatLatencyValue(row.p90 ?? 0)}</span>
-                      </i>
-                      <i className="latency-marker p95" style={{ left: position(row.p95), background: row.color }}>
-                        <span className="sr-only">P95 {formatLatencyValue(row.p95 ?? 0)}</span>
-                      </i>
-                    </span>
-                    <span className="latency-value">{row.valueLabel}</span>
-                  </button>
-                );
-              })}
-            </div>
-          ))}
-        </div>
+        <MetricGroupList
+          groups={tailGroups}
+          ariaLabel={`${tailMetric.toUpperCase()} sorted tail latency plot`}
+          renderRow={(row) => {
+            const dimmed = Boolean(
+              (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
+                (focusedPlatform && focusedPlatform !== row.hostId),
+            );
+            return (
+              <MetricRow
+                key={row.id}
+                label={row.label}
+                value={row.valueLabel}
+                variant="latency"
+                dimmed={dimmed}
+                onActivate={() => {
+                  if (groupMode === "algorithm") {
+                    onFocusPlatform(row.hostId);
+                  } else {
+                    onFocusAlgorithm(row.algorithm);
+                  }
+                }}
+              >
+                <i
+                  className="latency-range"
+                  style={{ left: position(row.p50), width: `calc(${position(row.p95)} - ${position(row.p50)})` }}
+                />
+                <i className="latency-marker p50" style={{ left: position(row.p50), background: row.color }}>
+                  <span className="sr-only">P50 {formatLatencyValue(row.p50 ?? 0)}</span>
+                </i>
+                <i className="latency-marker p90" style={{ left: position(row.p90), background: row.color }}>
+                  <span className="sr-only">P90 {formatLatencyValue(row.p90 ?? 0)}</span>
+                </i>
+                <i className="latency-marker p95" style={{ left: position(row.p95), background: row.color }}>
+                  <span className="sr-only">P95 {formatLatencyValue(row.p95 ?? 0)}</span>
+                </i>
+              </MetricRow>
+            );
+          }}
+        />
       )}
     </section>
   );
@@ -175,31 +174,28 @@ export function StabilityPanel({
       {stabilityRows.length === 0 ? (
         <EmptyPanel title="No stability data" />
       ) : (
-        <div className="stability-list" role="img" aria-label="Relative standard deviation stability chart">
-          {groups.map((group) => (
-            <div className="stability-group" key={group.id}>
-              <strong>{group.label}</strong>
-              {group.rows.map((row) => (
-                <StabilityRow
-                  key={row.id}
-                  row={row}
-                  maxRsd={maxRsd}
-                  dimmed={Boolean(
-                    (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
-                      (focusedPlatform && focusedPlatform !== row.hostId),
-                  )}
-                  onActivate={() => {
-                    if (groupMode === "algorithm") {
-                      onFocusPlatform(row.hostId);
-                    } else {
-                      onFocusAlgorithm(row.algorithm);
-                    }
-                  }}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
+        <MetricGroupList
+          groups={groups}
+          ariaLabel="Relative standard deviation stability chart"
+          renderRow={(row) => (
+            <StabilityRow
+              key={row.id}
+              row={row}
+              maxRsd={maxRsd}
+              dimmed={Boolean(
+                (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
+                  (focusedPlatform && focusedPlatform !== row.hostId),
+              )}
+              onActivate={() => {
+                if (groupMode === "algorithm") {
+                  onFocusPlatform(row.hostId);
+                } else {
+                  onFocusAlgorithm(row.algorithm);
+                }
+              }}
+            />
+          )}
+        />
       )}
     </section>
   );
@@ -219,14 +215,16 @@ function StabilityRow({
   const width = `${Math.max(2, (row.value / maxRsd) * 100)}%`;
   const detail = `${row.label}: ${formatRsd(row.relativeStdDev)} RSD, ${formatNumber.format(row.samples ?? 0)} samples`;
   return (
-    <button type="button" className={dimmed ? "stability-row dimmed" : "stability-row"} onClick={onActivate}>
-      <span className="stability-label">{row.label}</span>
-      <span className="stability-swatch" style={{ background: colorForRsd(row.relativeStdDev) }} />
-      <span className="stability-track">
-        <i style={{ width, background: colorForRsd(row.relativeStdDev) }} />
-      </span>
-      <span className="stability-value">{formatRsd(row.relativeStdDev)}</span>
-      <span className="sr-only">{detail}</span>
-    </button>
+    <MetricRow
+      label={row.label}
+      value={formatRsd(row.relativeStdDev)}
+      variant="stability"
+      dimmed={dimmed}
+      beforeTrack={<span className="stability-swatch" style={{ background: colorForRsd(row.relativeStdDev) }} />}
+      screenReaderDetail={detail}
+      onActivate={onActivate}
+    >
+      <MetricBar width={width} color={colorForRsd(row.relativeStdDev)} />
+    </MetricRow>
   );
 }

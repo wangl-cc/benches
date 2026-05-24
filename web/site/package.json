@@ -15,12 +15,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@visx/axis": "^3.12.0",
-    "@visx/gradient": "^3.12.0",
-    "@visx/group": "^3.12.0",
-    "@visx/scale": "^3.12.0",
-    "@visx/shape": "^3.12.0",
-    "@visx/stats": "^3.12.0",
+    "@nivo/line": "^0.99.0",
     "lucide-react": "^1.16.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

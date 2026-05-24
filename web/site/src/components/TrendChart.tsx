@@ -1,14 +1,35 @@
-import { AxisBottom, AxisLeft } from "@visx/axis";
-import { Group } from "@visx/group";
-import { scaleLinear, scaleLog } from "@visx/scale";
-import { LinePath } from "@visx/shape";
+import { ResponsiveLine } from "@nivo/line";
+import type { LineCustomSvgLayerProps } from "@nivo/line";
 import { LineChart } from "lucide-react";
+import { useMemo } from "react";
 import { colorForAlgorithm } from "../colors";
 import { commonInputUnit, formatInputValue, formatMetricValue } from "../format";
 import { AUTO_BENCHMARK } from "../model";
 import type { AxisScale, TrendSeries } from "../types";
 import { uniqueBy, uniqueSorted } from "../utils";
+import { benchmarkChartTheme } from "./chartTheme";
 import { ControlGroup, EmptyPanel, PanelHeader, SegmentedControl } from "./common";
+
+type NivoTrendDatum = {
+  x: number;
+  y: number;
+  label: string;
+  unit?: string;
+};
+
+type NivoTrendSeries = {
+  id: string;
+  algorithm: string;
+  hostId: string;
+  platform: string;
+  color: string;
+  dash?: string;
+  data: NivoTrendDatum[];
+};
+
+const MAX_X_TICKS = 5;
+const MAX_Y_TICKS = 7;
+const LOG_TICK_MANTISSAS = [1, 2, 5] as const;
 
 export function TrendChart({
   series,
@@ -41,26 +62,7 @@ export function TrendChart({
   onXScaleChange: (scale: AxisScale) => void;
   onYScaleChange: (scale: AxisScale) => void;
 }) {
-  const width = 1120;
-  const height = 318;
-  const left = 76;
-  const right = 36;
-  const top = 28;
-  const bottom = 52;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
   const allPoints = series.flatMap((item) => item.points);
-  const minX = allPoints.length > 0 ? Math.min(...allPoints.map((point) => point.x)) : 1;
-  const maxX = allPoints.length > 0 ? Math.max(...allPoints.map((point) => point.x)) : 2;
-  const positiveY = allPoints.map((point) => point.y).filter((value) => value > 0);
-  const minY = positiveY.length > 0 ? Math.min(...positiveY) : 1;
-  const maxY = positiveY.length > 0 ? Math.max(...positiveY) : 1;
-  const xScale = makeScale(xScaleMode, minX, maxX, [0, plotWidth]);
-  const yMin = yScaleMode === "log" ? minY * 0.82 : 0;
-  const yMax = maxY * 1.12;
-  const yScale = makeScale(yScaleMode, yMin, yMax, [plotHeight, 0]);
-  const yTicks = scaleTicks(yScaleMode, minY, maxY, 5);
-  const xTicks = scaleTicks(xScaleMode, minX, maxX, 7);
   const xUnit = commonInputUnit(allPoints);
   const legendAlgorithms = uniqueSorted(series.map((item) => item.algorithm));
   const legendPlatforms = uniqueBy(series, (item) => item.hostId).map((item) => ({
@@ -68,23 +70,37 @@ export function TrendChart({
     platform: item.platform,
     dash: item.dash,
   }));
-  const selectableInputs = uniqueBy(
-    allPoints
-      .map((point) => ({ label: point.label, x: point.x }))
-      .sort((leftPoint, rightPoint) => leftPoint.x - rightPoint.x),
-    (point) => point.label,
-  );
+  const inputCandidates: Array<{ label: string; x: number }> = [...allPoints]
+    .map((point) => ({ label: point.label, x: point.x }))
+    .sort((leftPoint, rightPoint) => leftPoint.x - rightPoint.x);
+  const selectableInputs = uniqueBy(inputCandidates, (point) => point.label);
   const selectedInput = selectableInputs.find((input) => input.label === representativeBenchmark);
   const activeRankLabel = activeBenchmark.startsWith(AUTO_BENCHMARK) ? `Auto: ${representativeBenchmark}` : representativeBenchmark;
-  const xPositions = selectableInputs.map((input) => xScale(input.x) ?? 0);
-  const inputZones = selectableInputs.map((input, index) => {
-    const current = xPositions[index] ?? 0;
-    const previous = xPositions[index - 1];
-    const next = xPositions[index + 1];
-    const start = previous === undefined ? 0 : (previous + current) / 2;
-    const end = next === undefined ? plotWidth : (current + next) / 2;
-    return { ...input, x: current, start, width: Math.max(8, end - start) };
-  });
+  const xValues = uniqueNumbers(allPoints.map((point) => point.x));
+  const yValues = uniqueNumbers(allPoints.map((point) => point.y));
+  const xTickValues = sparseTicks(xValues, MAX_X_TICKS);
+  const yTickValues = axisTicks(yValues, yScaleMode, MAX_Y_TICKS);
+  const yDomain = paddedYDomain(yValues, yScaleMode);
+  const chartData: NivoTrendSeries[] = series.map((item) => ({
+    id: item.id,
+    algorithm: item.algorithm,
+    hostId: item.hostId,
+    platform: item.platform,
+    color: item.color,
+    dash: item.dash,
+    data: [...item.points]
+      .sort((leftPoint, rightPoint) => leftPoint.x - rightPoint.x)
+      .map((point) => ({
+        x: point.x,
+        y: point.y,
+        label: point.label,
+        unit: point.unit,
+      })),
+  }));
+  const trendLayer = useMemo(
+    () => makeTrendLayer(focusedAlgorithm, focusedPlatform),
+    [focusedAlgorithm, focusedPlatform],
+  );
 
   return (
     <section className="panel trend-panel">
@@ -123,93 +139,57 @@ export function TrendChart({
         <EmptyPanel title="Need multiple input sizes for a trend" />
       ) : (
         <div className="trend-body">
-          <svg className="trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Input size trend line chart">
-            <Group left={left} top={top}>
-              <AxisLeft
-                scale={yScale}
-                tickValues={yTicks}
-                tickFormat={(value) => formatMetricValue(Number(value), unit)}
-                stroke="#cbd5e1"
-                tickStroke="#dbe3ee"
-                tickLabelProps={() => ({ className: "axis-label", dx: -8, dy: "0.33em", textAnchor: "end" })}
-              />
-              <AxisBottom
-                top={plotHeight}
-                scale={xScale}
-                tickValues={xTicks}
-                tickFormat={(value) => formatInputValue(Number(value), xUnit)}
-                stroke="#cbd5e1"
-                tickStroke="#dbe3ee"
-                tickLabelProps={() => ({ className: "axis-label", dy: 18, textAnchor: "middle" })}
-              />
-              {yTicks.map((tick) => (
-                <line key={tick} x1={0} x2={plotWidth} y1={yScale(tick)} y2={yScale(tick)} className="chart-grid-line" />
-              ))}
-              {selectedInput ? (
-                <line
-                  x1={xScale(selectedInput.x)}
-                  x2={xScale(selectedInput.x)}
-                  y1={0}
-                  y2={plotHeight}
-                  className="selected-size-line"
-                />
-              ) : null}
-              {inputZones.map((input) => (
-                <g
-                  key={input.label}
-                  className="size-hit-zone"
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => onBenchmarkChange(input.label)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      onBenchmarkChange(input.label);
-                    }
-                  }}
-                >
-                  <rect x={input.start} y={0} width={input.width} height={plotHeight + 34}>
-                    <title>{`Use ${input.label} for performance ranking`}</title>
-                  </rect>
-                </g>
-              ))}
-              {series.map((item) => {
-                const dimmed = Boolean(
-                  (focusedAlgorithm && focusedAlgorithm !== item.algorithm) ||
-                    (focusedPlatform && focusedPlatform !== item.hostId),
-                );
-                return (
-                  <g key={item.id} className={dimmed ? "chart-series dimmed" : "chart-series"}>
-                    <LinePath
-                      data={[...item.points].sort((a, b) => a.x - b.x)}
-                      x={(point) => xScale(point.x) ?? 0}
-                      y={(point) => yScale(Math.max(point.y, minY)) ?? 0}
-                      fill="none"
-                      stroke={item.color}
-                      strokeWidth={2.2}
-                      strokeDasharray={item.dash}
-                      strokeLinejoin="round"
-                      strokeLinecap="round"
-                    />
-                    {item.points.map((point) => (
-                      <circle
-                        key={`${item.id}-${point.x}`}
-                        cx={xScale(point.x)}
-                        cy={yScale(Math.max(point.y, minY))}
-                        r="3.4"
-                        fill={item.color}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onBenchmarkChange(point.label);
-                        }}
-                      >
-                        <title>{`${item.algorithm} on ${item.platform}: ${formatMetricValue(point.y, unit)}`}</title>
-                      </circle>
-                    ))}
-                  </g>
-                );
-              })}
-            </Group>
-          </svg>
+          <div className="trend-chart" role="img" aria-label="Input size trend line chart">
+            <ResponsiveLine<NivoTrendSeries>
+              data={chartData}
+              theme={benchmarkChartTheme}
+              margin={{ top: 26, right: 18, bottom: 43, left: 70 }}
+              xScale={scaleSpec(xScaleMode)}
+              yScale={scaleSpec(yScaleMode, yDomain.min, yDomain.max)}
+              axisBottom={{
+                tickSize: 4,
+                tickPadding: 10,
+                tickRotation: 0,
+                tickValues: xTickValues,
+                format: (value) => formatInputValue(Number(value), xUnit),
+              }}
+              axisLeft={{
+                tickSize: 4,
+                tickPadding: 8,
+                tickRotation: 0,
+                tickValues: yTickValues,
+                format: (value) => formatMetricValue(Number(value), unit),
+              }}
+              colors={(item) => item.color}
+              curve="linear"
+              enableGridX={false}
+              enableGridY
+              enablePoints={false}
+              enableSlices={false}
+              useMesh
+              onClick={(datum) => {
+                if ("data" in datum) {
+                  onBenchmarkChange(datum.data.label);
+                }
+              }}
+              animate={false}
+              lineWidth={2.2}
+              xFormat={(value) => formatInputValue(Number(value), xUnit)}
+              yFormat={(value) => formatMetricValue(Number(value), unit)}
+              markers={
+                selectedInput
+                  ? [
+                      {
+                        axis: "x",
+                        value: selectedInput.x,
+                        lineStyle: { stroke: "#2563eb", strokeWidth: 1.4, strokeDasharray: "4 4", opacity: 0.76 },
+                      },
+                    ]
+                  : []
+              }
+              layers={["grid", "markers", "axes", trendLayer, "mesh"]}
+            />
+          </div>
           <div className="chart-legend">
             <div className="legend-group">
               <strong>Color</strong>
@@ -248,23 +228,119 @@ export function TrendChart({
   );
 }
 
-function makeScale(mode: AxisScale, min: number, max: number, range: [number, number]) {
-  if (mode === "log") {
-    return scaleLog({ domain: [Math.max(1, min), Math.max(2, max)], range });
-  }
-  return scaleLinear({ domain: [min, max], nice: true, range });
+function scaleSpec(mode: AxisScale, min: number | "auto" = "auto", max: number | "auto" = "auto") {
+  return {
+    type: mode,
+    min,
+    max,
+  };
 }
 
-function scaleTicks(mode: AxisScale, min: number, max: number, count: number) {
-  if (mode === "linear") {
-    return scaleLinear({ domain: [min, max], nice: true }).ticks(count);
+function uniqueNumbers(values: number[]) {
+  return [...new Set(values.filter((value) => Number.isFinite(value) && value > 0))].sort((leftValue, rightValue) => leftValue - rightValue);
+}
+
+function sparseTicks(values: number[], maxTicks: number) {
+  if (values.length <= maxTicks) {
+    return values;
   }
-  const start = Math.max(1, min);
-  const end = Math.max(start + 1, max);
-  const logMin = Math.floor(Math.log2(start));
-  const logMax = Math.ceil(Math.log2(end));
-  const step = Math.max(1, Math.ceil((logMax - logMin) / count));
-  return Array.from({ length: Math.floor((logMax - logMin) / step) + 1 }, (_, index) => 2 ** (logMin + index * step)).filter(
-    (tick) => tick >= start && tick <= end,
-  );
+
+  const ticks: number[] = [];
+  for (let index = 0; index < maxTicks; index += 1) {
+    const valueIndex = Math.round((index * (values.length - 1)) / (maxTicks - 1));
+    ticks.push(values[valueIndex]);
+  }
+  return [...new Set(ticks)];
+}
+
+function axisTicks(values: number[], mode: AxisScale, maxTicks: number) {
+  if (mode === "linear") {
+    return linearTicks(values, maxTicks);
+  }
+  return logTicks(values, maxTicks);
+}
+
+function linearTicks(values: number[], maxTicks: number) {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const maxValue = Math.max(...values);
+  const paddedMax = maxValue * 1.08;
+  const tickCount = Math.max(2, maxTicks);
+  return Array.from({ length: tickCount }, (_, index) => (paddedMax * index) / (tickCount - 1));
+}
+
+function logTicks(values: number[], maxTicks: number) {
+  if (values.length === 0) {
+    return [];
+  }
+
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values) * 1.15;
+  const minExponent = Math.floor(Math.log10(minValue));
+  const maxExponent = Math.ceil(Math.log10(maxValue));
+  const candidates: number[] = [];
+
+  for (let exponent = minExponent; exponent <= maxExponent; exponent += 1) {
+    const magnitude = 10 ** exponent;
+    for (const mantissa of LOG_TICK_MANTISSAS) {
+      const value = mantissa * magnitude;
+      if (value >= minValue && value <= maxValue) {
+        candidates.push(value);
+      }
+    }
+  }
+
+  return sparseTicks(candidates, maxTicks);
+}
+
+function paddedYDomain(values: number[], mode: AxisScale): { min: number | "auto"; max: number | "auto" } {
+  if (values.length === 0) {
+    return { min: mode === "linear" ? 0 : "auto", max: "auto" };
+  }
+
+  const maxValue = Math.max(...values);
+  if (mode === "linear") {
+    return { min: 0, max: maxValue * 1.08 };
+  }
+  return { min: "auto", max: maxValue * 1.15 };
+}
+
+function makeTrendLayer(focusedAlgorithm: string | null, focusedPlatform: string | null) {
+  return function TrendLayer({ series, points, lineGenerator }: LineCustomSvgLayerProps<NivoTrendSeries>) {
+    return (
+      <g>
+        {series.map((item) => {
+          const dimmed = Boolean(
+            (focusedAlgorithm && focusedAlgorithm !== item.algorithm) ||
+              (focusedPlatform && focusedPlatform !== item.hostId),
+          );
+          const path = lineGenerator(item.data.map((point) => point.position));
+          return (
+            <path
+              key={item.id}
+              d={path ?? undefined}
+              fill="none"
+              stroke={item.color}
+              strokeWidth={2.2}
+              strokeDasharray={item.dash}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              opacity={dimmed ? 0.24 : 1}
+            />
+          );
+        })}
+        {points.map((point) => {
+          const seriesItem = series.find((item) => item.id === point.seriesId);
+          const dimmed = Boolean(
+            seriesItem &&
+              ((focusedAlgorithm && focusedAlgorithm !== seriesItem.algorithm) ||
+                (focusedPlatform && focusedPlatform !== seriesItem.hostId)),
+          );
+          return <circle key={point.id} cx={point.x} cy={point.y} r="3.4" fill={point.seriesColor} opacity={dimmed ? 0.24 : 1} />;
+        })}
+      </g>
+    );
+  };
 }

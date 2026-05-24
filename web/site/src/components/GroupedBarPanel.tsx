@@ -1,6 +1,7 @@
 import type { ElementType, ReactNode } from "react";
 import type { GroupedBarGroup, GroupedBarRow } from "../types";
 import { EmptyPanel, PanelHeader } from "./common";
+import { MetricBar, MetricGroupList, MetricRow } from "./MetricGroupList";
 
 export function GroupedBarPanel({
   title,
@@ -38,34 +39,29 @@ export function GroupedBarPanel({
   return (
     <section className="panel grouped-bar-panel">
       <PanelHeader icon={Icon} title={title} controls={controls} />
-      <div className="grouped-bar-list" role="img" aria-label={ariaLabel}>
-        {groups.map((group) => (
-          <div className="grouped-bar-group" key={group.id}>
-            <strong>{group.label}</strong>
-            {group.rows.map((row) => {
-              const width = `${Math.max(3, (row.score / maxScore) * 100)}%`;
-              const dimmed = Boolean(
-                (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
-                  (focusedPlatform && focusedPlatform !== row.hostId),
-              );
-              return (
-                <button
-                  key={row.id}
-                  type="button"
-                  className={dimmed ? "grouped-bar-row dimmed" : "grouped-bar-row"}
-                  onClick={() => onRowActivate(row)}
-                >
-                  <span className="grouped-bar-label">{row.label}</span>
-                  <span className="grouped-bar-track">
-                    <i style={{ width, background: row.color }} />
-                  </span>
-                  <span className="grouped-bar-value">{row.valueLabel}</span>
-                </button>
-              );
-            })}
-          </div>
-        ))}
-      </div>
+      <MetricGroupList
+        groups={groups}
+        ariaLabel={ariaLabel}
+        renderRow={(row) => {
+          const width = `${Math.max(3, (row.score / maxScore) * 100)}%`;
+          const dimmed = Boolean(
+            (focusedAlgorithm && focusedAlgorithm !== row.algorithm) ||
+              (focusedPlatform && focusedPlatform !== row.hostId),
+          );
+          return (
+            <MetricRow
+              key={row.id}
+              label={row.label}
+              value={row.valueLabel}
+              variant="bar"
+              dimmed={dimmed}
+              onActivate={() => onRowActivate(row)}
+            >
+              <MetricBar width={width} color={row.color} />
+            </MetricRow>
+          );
+        }}
+      />
     </section>
   );
 }
