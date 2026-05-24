@@ -1,5 +1,9 @@
 /target
 /.pnpm-store
-/site/dist
-/site/node_modules
-/site/public/results
+/node_modules
+/web/node_modules
+/web/site/dist
+/web/site/node_modules
+/web/worker/node_modules
+/web/worker/.wrangler
+/web/worker/.dev.vars

@@ -1,0 +1,58 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "benchmark-explorer",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-21",
+  "assets": {
+    "directory": "../site/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "secrets": {
+    "required": [
+      "CF_ACCESS_TOKENS"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "BENCH_DB",
+      "database_name": "benchmark-results",
+      "database_id": "<replace-with-d1-database-id>",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "BENCH_RAW_RUNS",
+      "bucket_name": "benchmark-raw-runs"
+    }
+  ],
+  "env": {
+    "preview": {
+      "name": "benchmark-explorer-preview",
+      "d1_databases": [
+        {
+          "binding": "BENCH_DB",
+          "database_name": "benchmark-results",
+          "database_id": "<replace-with-d1-database-id>",
+          "migrations_dir": "migrations"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "BENCH_RAW_RUNS",
+          "bucket_name": "benchmark-raw-runs"
+        }
+      ],
+      "vars": {
+        "DISABLE_INGEST": "true"
+      }
+    }
+  }
+}

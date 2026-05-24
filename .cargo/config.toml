@@ -1,10 +1,2 @@
 [build]
 rustflags = ["-Ctarget-cpu=native"]
-
-[alias]
-x = "run -p xtask --"
-xr = "run -p xtask -- run"
-xc = "run -p xtask -- collect"
-xcr = "run -p xtask -- collect --run-bench"
-xa = "run -p xtask -- aggregate"
-xtask = "run -p xtask --"

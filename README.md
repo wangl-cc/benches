@@ -1,138 +1,130 @@
 # Rust Benchmark Workspace
 
-This repository is used to benchmark and compare algorithms used in real
-projects, with shared tooling for running, collecting, and aggregating results.
-
-Current scopes include hashing and PRNG, but the repository is not limited to
-those two categories.
-
-## Benchmarks
-
-Current benchmark crates:
-
-- [bench_hash/README.md](bench_hash/README.md): non-cryptographic and
-  cryptographic hash throughput.
-- [bench_prng/README.md](bench_prng/README.md): PRNG generation throughput.
+This repository benchmarks algorithms used in real projects and publishes raw
+measurements to a Cloudflare-backed explorer.
 
 ## Workspace Layout
 
-- `bench_*/`: benchmark crates.
-- `xtask/`: benchmark orchestration CLI (`run`, `collect`, `aggregate`).
-- `results/{platform}/`: collected charts and platform metadata.
-- `site/`: PNPM/Vite benchmark dashboard for local and Cloudflare Pages viewing.
-- `bench_*/RESULTS.md`: cross-platform aggregated result pages.
+- `crates/harness/`: shared Rust measurement library.
+- `crates/bench_hash/`: hash benchmark scope and `hash` bench target.
+- `crates/bench_prng/`: PRNG benchmark scope and `prng` bench target.
+- `web/site/`: React/Vite benchmark explorer.
+- `web/worker/`: Cloudflare Worker API, static assets config, D1 migrations,
+  and R2/D1 bindings.
+- `web/packages/bench-schema/`: shared TypeScript validation helpers.
+- `web/scripts/`: benchmark orchestration, publish client, and seed data tools.
 
-## Quick Start
+## Running Benchmarks
 
-Prerequisites:
-
-- Rust toolchain (`stable` is enough for running/collecting/aggregating).
-- Node.js 26 and PNPM 11 for the dashboard. PNPM 10 is accepted so
-  Cloudflare's default installer does not fail before reading project settings.
-- `cargo +nightly fmt --all` if you want to apply formatting.
-
-Run all benchmark scopes:
+From the repository root, run through the web orchestration workspace:
 
 ```bash
-cargo xr
+pnpm --dir web bench:run -- --scope all --profile publish
+pnpm --dir web bench:run -- --scope hash --profile quick
+pnpm --dir web bench:run -- --scope prng --profile quick
 ```
 
-Run only one scope:
+The TS wrapper calls the standard Cargo bench targets:
 
 ```bash
-cargo xr --scope hash
-cargo xr --scope prng
+cargo bench -p bench_hash --bench hash -- --profile publish
+cargo bench -p bench_prng --bench prng -- --profile publish
 ```
 
-Run quick mode:
+Default outputs are scope-specific:
+
+```text
+target/bench-runs/hash/latest.json
+target/bench-runs/prng/latest.json
+```
+
+Use `--out` only with a single scope:
 
 ```bash
-cargo xr --quick
+pnpm --dir web bench:run -- --scope hash --out ../target/bench-runs/hash/custom.json
 ```
 
-Collect local charts from existing benchmark artifacts:
+The publish profile collects 100 samples per case after warmup/calibration.
+Quick mode is only for smoke tests and is rejected by production ingest.
+
+## Publishing And Local Web
+
+Publish one run:
 
 ```bash
-cargo xc
+pnpm --dir web bench:auth import \
+  --access-client-id <cloudflare-access-client-id>
+pnpm --dir web bench:publish ../target/bench-runs/hash/latest.json
 ```
 
-Collect and run benchmarks first:
+The default API URL comes from `web/bench.config.json` and points to
+`https://benches.loongw.cc`. `bench:auth import` stores the Cloudflare Access
+client id and encrypted client secret in
+`~/.config/benchmark-explorer/credentials.json`. The file is encrypted with a
+local passphrase and chmodded to `0600`, so the normal local workflow does not
+require shell environment variables or a platform keyring. Use
+`pnpm --dir web bench:auth status` to inspect the local credential metadata and
+`pnpm --dir web bench:auth logout` to clear it.
+
+Run and publish all scopes as independent runs:
 
 ```bash
-cargo xcr
+pnpm --dir web bench:run:publish -- --scope all --profile publish
 ```
 
-Aggregate all platform results into crate-local `RESULTS.md`:
+Run the Worker and explorer locally:
 
 ```bash
-cargo xa
+pnpm --dir web install
+pnpm --dir web dev:8788
 ```
 
-Run the dashboard locally:
+The explorer reads same-origin `/api/*` routes and falls back to fixture data
+when the API is unavailable.
+
+## Cloudflare API
+
+The publish client validates `run.json`, computes a canonical SHA-256 hash, and
+sends the run to `POST /api/runs` with Cloudflare Access service-token headers.
+The Worker owns all D1/R2 writes and derives queryable summaries from raw
+samples during ingest.
+
+Deployment instructions are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+Worker endpoints:
+
+- `POST /api/runs`: private ingest endpoint protected by Access service-token
+  headers.
+- `GET /api/runs`: public run index.
+- `GET /api/runs/:id`: public raw run JSON.
+- `GET /api/results`: public query endpoint used by the explorer.
+
+Deploy from `web/worker`:
 
 ```bash
-cd site
-pnpm install
-pnpm run dev
+pnpm --dir web/worker deploy:production
 ```
 
-Note: `xtask` currently aggregates configured scopes (`hash`, `prng`). New
-scopes can be added by extending the scope configuration in `xtask`.
+Cloudflare Workers Builds should use:
 
-## Result Files
+- Root directory: `web/worker`
+- Production command:
+  `pnpm --dir .. install --frozen-lockfile && pnpm deploy:production`
+- Preview command:
+  `pnpm --dir .. install --frozen-lockfile && pnpm preview`
 
-For each platform:
-
-- `results/{platform}/README.md`
-- `results/{platform}/environment.ini`
-- `results/{platform}/charts/*.svg`
-
-`cargo xa` also writes `site/public/results.json` for the dashboard and stages
-the SVG chart assets under `site/public/results/` for local serving/builds.
-The staged chart assets are ignored by git because they mirror `results/`.
-
-`environment.ini` uses a minimal INI format:
-
-```ini
-[environment]
-cpu = ...
-os = ...
-kernel = ...
-rustc = ...
-llvm = ...
-```
-
-## Automation
-
-GitHub Actions workflow
-[`aggregate-results.yml`](.github/workflows/aggregate-results.yml) will
-re-run aggregation when `results/**` changes and auto-commit updated
-`bench_*/RESULTS.md`.
-
-Cloudflare Pages can deploy the dashboard directly from GitHub without a deploy
-workflow. Create a Pages project connected to this repository with:
-
-- Production branch: `main`
-- Root directory: `site`
-- Build command: `pnpm run build:site`
-- Build output directory: `dist`
-- Environment variable: `NODE_VERSION=26`
-- Environment variable: `PNPM_VERSION=11`
-
-Pull requests from this repository will receive Cloudflare Pages preview URLs.
-The `build:site` script intentionally skips `cargo xa`; dashboard data should
-come from the committed `site/public/results.json` generated by aggregation.
-The `PNPM_VERSION` setting avoids deprecation warnings from Cloudflare's default
-pnpm version while the package still accepts pnpm 10 or 11.
-
-If Cloudflare logs show `Executing user deploy command: npx wrangler versions
-upload`, that deployment is coming from a Workers project, not Cloudflare Pages.
-Disable that Workers Git integration or delete the Workers project, then keep
-the Pages project connected to this repository.
+Preview uploads use the Worker `preview` environment, where benchmark ingest is
+disabled so preview URLs cannot mutate production benchmark storage.
 
 ## Development Commands
 
 - `cargo check --workspace`
 - `cargo clippy`
 - `cargo +nightly fmt --all`
-- `cargo test -p xtask`
+- `cargo test -p harness`
+- `cargo bench -p bench_hash --bench hash -- --profile quick`
+- `cargo bench -p bench_prng --bench prng -- --profile quick`
+- `pnpm --dir web typecheck:api`
+- `pnpm --dir web test:api`
+- `pnpm --dir web build`
+- `pnpm --dir web bench:seed`
