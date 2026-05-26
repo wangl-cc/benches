@@ -75,7 +75,13 @@ function formatRateNumber(value: number) {
 }
 
 function displayUnit(unit: string) {
-  return isByteRateUnit(unit) ? "B/s" : unit;
+  if (isByteRateUnit(unit)) {
+    return "B/s";
+  }
+  if (/^(elements?|items?)(\/s|\/sec|\/second| per second)$/iu.test(unit.trim())) {
+    return "elem/s";
+  }
+  return unit;
 }
 
 function isByteRateUnit(unit: string) {
@@ -124,11 +130,15 @@ export function formatInputValue(value: number, unit?: string) {
   if (!unit || isByteInputUnit(unit)) {
     return formatInputSize(value);
   }
-  return `${formatCompact(value)} ${unit}`;
+  return `${formatCompact(value)} ${displayInputUnit(unit)}`;
 }
 
 function isByteInputUnit(unit: string) {
   return /^(bytes?|b)$/iu.test(unit.trim());
+}
+
+function displayInputUnit(unit: string) {
+  return /^(elements?|items?)$/iu.test(unit.trim()) ? "elem" : unit;
 }
 
 export function commonInputUnit(points: Array<{ unit?: string }>) {

@@ -6,18 +6,13 @@ export type BenchmarkEnvironment = {
   kernel?: string;
   rustc?: string;
   llvm?: string;
-  memory?: string;
 };
 
 export type BenchmarkRun = {
   id: string;
   label: string;
   startedAt: string;
-  completedAt?: string;
-  commit?: string;
-  branch?: string;
-  resultGroup?: string;
-  scopes?: string[];
+  benchmarkName?: string;
   host: {
     id: string;
     label: string;
@@ -28,10 +23,10 @@ export type BenchmarkRun = {
 export type BenchmarkResult = {
   id: string;
   runId: string;
-  scope: string;
+  benchmarkName: string;
   group: string;
   workloadDescription?: string;
-  benchmark: string;
+  workload: string;
   algorithm: string;
   algorithmColor?: string;
   metric: string;
@@ -48,16 +43,10 @@ export type BenchmarkResult = {
     p95NsPerIter?: number;
     p99NsPerIter?: number;
   };
-  anomaly?: {
-    level: "info" | "warning" | "critical";
-    message: string;
-  };
 };
 
-export type RunsResponse = BenchmarkRun[] | { runs: BenchmarkRun[] };
-export type ResultsResponse = BenchmarkResult[] | { results: BenchmarkResult[] };
-
-export type CompareMode = "absolute" | "baseline";
+export type RunsResponse = { runs: unknown[] };
+export type ResultsResponse = { results: unknown[] };
 
 export type ExplorerData = {
   runs: BenchmarkRun[];
@@ -67,7 +56,7 @@ export type ExplorerData = {
 
 export type AxisScale = "linear" | "log";
 export type RankingGroup = "algorithm" | "platform";
-export type TailLatencyMetric = "p50" | "p90" | "p95";
+export type TailLatencyMetric = "p50" | "p90" | "p95" | "p99";
 
 export type HostOption = {
   id: string;
@@ -118,12 +107,13 @@ export type TailLatencyRow = GroupedBarRow & {
   p50?: number;
   p90?: number;
   p95?: number;
+  p99?: number;
 };
 
 export type ExplorerModelState = {
-  scope: string;
+  benchmarkName: string;
   group: string;
-  benchmark: string;
+  workload: string;
   query: string;
   platformIds: string[];
   algorithmIds: string[];
@@ -133,13 +123,14 @@ export type ExplorerModelState = {
 export type ExplorerModel = {
   hosts: HostOption[];
   selectedHostIds: string[];
-  scopes: string[];
+  benchmarkNames: string[];
   groups: string[];
   workloadDescription?: string;
-  benchmarks: string[];
-  representativeBenchmark: string;
-  autoBenchmark: string;
+  workloads: string[];
+  representativeWorkload: string;
+  autoWorkload: string;
   availableAlgorithms: string[];
+  visibleAlgorithms: string[];
   algorithmColors: Map<string, string>;
   selectedAlgorithms: string[];
   visibleRows: ResultRow[];

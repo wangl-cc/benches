@@ -4,7 +4,7 @@ use std::{env::consts, process::Command};
 
 use serde::Serialize;
 
-use crate::util::workspace_root;
+use crate::{HarnessError, Result, util::workspace_root};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -25,135 +25,160 @@ pub(crate) struct HostInfo {
     llvm: String,
 }
 
-pub(crate) fn detect_git(warnings: &mut Vec<String>) -> GitInfo {
-    let commit = command_stdout("git", &["rev-parse", "--short=12", "HEAD"], warnings)
-        .unwrap_or_else(|| "unknown".to_owned());
-    let branch = command_stdout("git", &["branch", "--show-current"], warnings)
-        .filter(|branch| !branch.is_empty())
-        .unwrap_or_else(|| "unknown".to_owned());
-    let dirty = command_stdout("git", &["status", "--porcelain"], warnings)
-        .map(|status| !status.is_empty())
-        .unwrap_or(false);
-    GitInfo {
-        commit,
-        branch,
-        dirty,
+impl GitInfo {
+    pub(crate) fn detect() -> Result<Self> {
+        let commit = command_stdout("git", &["rev-parse", "--short=12", "HEAD"])?;
+        let branch = command_stdout("git", &["branch", "--show-current"])?;
+        let dirty = command_stdout("git", &["status", "--porcelain"])?;
+        let branch = if branch.is_empty() {
+            "detached".to_owned()
+        } else {
+            branch
+        };
+        Ok(Self {
+            commit: require_non_empty("git rev-parse --short=12 HEAD", commit)?,
+            branch,
+            dirty: !dirty.is_empty(),
+        })
     }
 }
 
-pub(crate) fn detect_host(warnings: &mut Vec<String>) -> HostInfo {
-    let compiler = command_stdout("rustc", &["-Vv"], warnings);
-    let (rustc, llvm) = compiler
-        .as_deref()
-        .map(parse_rustc_verbose)
-        .unwrap_or_else(|| ("unknown".to_owned(), "unknown".to_owned()));
-    HostInfo {
-        os: consts::OS.to_owned(),
-        arch: consts::ARCH.to_owned(),
-        cpu: detect_cpu(warnings).unwrap_or_else(|| consts::ARCH.to_owned()),
-        kernel: command_stdout("uname", &["-sr"], warnings).unwrap_or_else(|| "unknown".to_owned()),
-        rustc,
-        llvm,
+impl HostInfo {
+    pub(crate) fn detect() -> Result<Self> {
+        let compiler = command_stdout("rustc", &["-Vv"])?;
+        let (rustc, llvm) = parse_rustc_verbose(&compiler)?;
+        Ok(Self {
+            os: consts::OS.to_owned(),
+            arch: consts::ARCH.to_owned(),
+            cpu: detect_cpu()?,
+            kernel: require_non_empty("uname -sr", command_stdout("uname", &["-sr"])?)?,
+            rustc,
+            llvm,
+        })
     }
 }
 
-fn command_stdout(command: &str, args: &[&str], warnings: &mut Vec<String>) -> Option<String> {
-    match Command::new(command)
+fn command_stdout(command: &str, args: &[&str]) -> Result<String> {
+    let output = Command::new(command)
         .args(args)
         .current_dir(workspace_root())
         .output()
-    {
-        Ok(output) if output.status.success() => {
-            Some(String::from_utf8_lossy(&output.stdout).trim().to_owned())
-        }
-        Ok(output) => {
-            warnings.push(format!(
-                "command failed: {command} {} (status {})",
-                args.join(" "),
-                output.status
-            ));
-            None
-        }
-        Err(error) => {
-            warnings.push(format!(
-                "command could not run: {command} {} ({error})",
-                args.join(" ")
-            ));
-            None
-        }
+        .map_err(|error| {
+            HarnessError::with_source(
+                format!(
+                    "failed to run metadata command: {command} {}",
+                    args.join(" ")
+                ),
+                error,
+            )
+        })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+        let detail = if stderr.is_empty() {
+            format!("status {}", output.status)
+        } else {
+            format!("status {}: {stderr}", output.status)
+        };
+        return Err(HarnessError::new(format!(
+            "metadata command failed: {command} {} ({detail})",
+            args.join(" ")
+        )));
     }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_owned())
 }
 
-fn parse_rustc_verbose(output: &str) -> (String, String) {
+fn require_non_empty(label: &str, value: String) -> Result<String> {
+    if value.is_empty() {
+        return Err(HarnessError::new(format!(
+            "metadata command returned empty output: {label}"
+        )));
+    }
+    Ok(value)
+}
+
+fn parse_rustc_verbose(output: &str) -> Result<(String, String)> {
     let rustc = output
         .lines()
         .next()
         .filter(|line| !line.trim().is_empty())
-        .unwrap_or("unknown")
+        .ok_or_else(|| HarnessError::new("rustc -Vv did not include rustc version"))?
         .to_owned();
     let llvm = output
         .lines()
         .find_map(|line| line.strip_prefix("LLVM version:"))
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .unwrap_or("unknown")
+        .ok_or_else(|| HarnessError::new("rustc -Vv did not include LLVM version"))?
         .to_owned();
-    (rustc, llvm)
+    Ok((rustc, llvm))
 }
 
-fn detect_cpu(warnings: &mut Vec<String>) -> Option<String> {
+fn detect_cpu() -> Result<String> {
     #[cfg(target_os = "linux")]
     {
-        match fs::read_to_string("/proc/cpuinfo") {
-            Ok(content) => {
-                for line in content.lines() {
-                    for key in ["model name", "Hardware"] {
-                        if line.starts_with(key)
-                            && let Some((_, value)) = line.split_once(':')
-                        {
-                            let value = value.trim();
-                            if !value.is_empty() {
-                                return Some(value.to_owned());
-                            }
-                        }
+        let content = fs::read_to_string("/proc/cpuinfo").map_err(|error| {
+            HarnessError::with_source(
+                "failed to read Linux CPU metadata from /proc/cpuinfo",
+                error,
+            )
+        })?;
+        for line in content.lines() {
+            for key in ["model name", "Hardware"] {
+                if line.starts_with(key)
+                    && let Some((_, value)) = line.split_once(':')
+                {
+                    let value = value.trim();
+                    if !value.is_empty() {
+                        return Ok(value.to_owned());
                     }
                 }
             }
-            Err(error) => warnings.push(format!("failed to read /proc/cpuinfo: {error}")),
         }
+        return Err(HarnessError::new(
+            "Linux CPU metadata did not include model name or Hardware",
+        ));
     }
 
     #[cfg(target_os = "macos")]
     {
-        for key in ["machdep.cpu.brand_string", "hw.model"] {
-            if let Some(cpu) = command_stdout_quiet("sysctl", &["-n", key])
-                && !cpu.is_empty()
-            {
-                return Some(cpu);
+        let mut errors = Vec::new();
+
+        match command_stdout("sysctl", &["-n", "machdep.cpu.brand_string"]) {
+            Ok(cpu) if !cpu.is_empty() => return Ok(cpu),
+            Ok(_) => {
+                errors.push("sysctl -n machdep.cpu.brand_string returned empty output".to_owned())
             }
+            Err(error) => errors.push(error.to_string()),
         }
 
-        if let Some(output) = command_stdout_quiet("system_profiler", &["SPHardwareDataType"])
-            && let Some(cpu) = parse_macos_cpu_from_system_profiler(&output)
-        {
-            return Some(cpu.to_owned());
+        match command_stdout("system_profiler", &["SPHardwareDataType"]) {
+            Ok(output) => {
+                if let Some(cpu) = parse_macos_cpu_from_system_profiler(&output) {
+                    return Ok(cpu.to_owned());
+                }
+                errors.push(
+                    "system_profiler SPHardwareDataType did not include CPU metadata".to_owned(),
+                );
+            }
+            Err(error) => errors.push(error.to_string()),
         }
+
+        match command_stdout("sysctl", &["-n", "hw.model"]) {
+            Ok(model) if !model.is_empty() => return Ok(model),
+            Ok(_) => errors.push("sysctl -n hw.model returned empty output".to_owned()),
+            Err(error) => errors.push(error.to_string()),
+        }
+
+        Err(HarnessError::new(format!(
+            "failed to detect macOS CPU metadata: {}",
+            errors.join("; ")
+        )))
     }
 
-    command_stdout("uname", &["-m"], warnings).filter(|cpu| !cpu.is_empty())
-}
-
-fn command_stdout_quiet(command: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(command)
-        .args(args)
-        .current_dir(workspace_root())
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        require_non_empty("uname -m", command_stdout("uname", &["-m"])?)
     }
-    let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-    (!value.is_empty()).then_some(value)
 }
 
 #[cfg(target_os = "macos")]

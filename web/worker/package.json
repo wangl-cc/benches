@@ -8,18 +8,13 @@
     "node": ">=26 <27",
     "pnpm": ">=10 <12"
   },
-  "scripts": {
-    "build:site": "pnpm --dir ../site run build:site",
-    "dev": "pnpm build:site && pnpm migrate:local && wrangler dev",
-    "dev:8788": "pnpm build:site && pnpm migrate:local && wrangler dev --ip 127.0.0.1 --port 8788",
-    "deploy:production": "pnpm build:site && pnpm migrate:remote && wrangler deploy --env=\"\"",
-    "preview": "pnpm build:site && wrangler versions upload --env preview",
-    "migrate:local": "wrangler d1 migrations apply BENCH_DB --local",
-    "migrate:remote": "wrangler d1 migrations apply BENCH_DB --remote"
-  },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260520.0",
-    "typescript": "^6.0.3",
     "wrangler": "^4.93.1"
+  },
+  "scripts": {
+    "dev": "wrangler dev --config ../wrangler.jsonc",
+    "deploy": "wrangler deploy --config ../wrangler.jsonc",
+    "migrate": "wrangler d1 migrations apply BENCH_DB --config ../wrangler.jsonc"
   }
 }

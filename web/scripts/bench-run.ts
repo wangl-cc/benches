@@ -1,17 +1,46 @@
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-export type BenchScope = "hash" | "prng" | "all";
+export type BenchTargetSet = "hash" | "prng" | "all";
 
 type ParsedBenchArgs = {
-  readonly scope: BenchScope;
+  readonly targetSet: BenchTargetSet;
   readonly cargoArgs: readonly string[];
   readonly explicitOut?: string;
 };
 
 const targets = {
-  hash: { packageName: "bench_hash", benchName: "hash", output: "../target/bench-runs/hash/latest.json" },
-  prng: { packageName: "bench_prng", benchName: "prng", output: "../target/bench-runs/prng/latest.json" },
-} as const;
+  non_cryptographic_hash: {
+    packageName: "bench_hash",
+    benchName: "non_cryptographic_hash",
+    output: "../target/bench-runs/non-cryptographic-hash/latest.json",
+  },
+  cryptographic_hash: {
+    packageName: "bench_hash",
+    benchName: "cryptographic_hash",
+    output: "../target/bench-runs/cryptographic-hash/latest.json",
+  },
+  u64_generation: {
+    packageName: "bench_prng",
+    benchName: "u64_generation",
+    output: "../target/bench-runs/prng-u64-generation/latest.json",
+  },
+  bytes_generation: {
+    packageName: "bench_prng",
+    benchName: "bytes_generation",
+    output: "../target/bench-runs/prng-bytes-generation/latest.json",
+  },
+} as const satisfies Record<string, BenchTarget>;
+
+const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
+
+type BenchTargetName = keyof typeof targets;
+
+type BenchTarget = {
+  readonly packageName: string;
+  readonly benchName: string;
+  readonly output: string;
+};
 
 export function parseBenchArgs(argv: readonly string[]): ParsedBenchArgs {
   const args = [...argv];
@@ -19,26 +48,26 @@ export function parseBenchArgs(argv: readonly string[]): ParsedBenchArgs {
     args.shift();
   }
 
-  let scope: BenchScope = "all";
+  let targetSet: BenchTargetSet = "all";
   let explicitOut: string | undefined;
   const cargoArgs: string[] = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--scope") {
+    if (arg === "--target") {
       const value = args[index + 1];
-      if (!isBenchScope(value)) {
-        throw new Error("--scope must be hash, prng, or all");
+      if (!isBenchTargetSet(value)) {
+        throw new Error("--target must be hash, prng, or all");
       }
-      scope = value;
+      targetSet = value;
       index += 1;
       continue;
     }
-    if (arg.startsWith("--scope=")) {
-      const value = arg.slice("--scope=".length);
-      if (!isBenchScope(value)) {
-        throw new Error("--scope must be hash, prng, or all");
+    if (arg.startsWith("--target=")) {
+      const value = arg.slice("--target=".length);
+      if (!isBenchTargetSet(value)) {
+        throw new Error("--target must be hash, prng, or all");
       }
-      scope = value;
+      targetSet = value;
       continue;
     }
     if (arg === "--out") {
@@ -58,51 +87,70 @@ export function parseBenchArgs(argv: readonly string[]): ParsedBenchArgs {
     cargoArgs.push(arg);
   }
 
-  if (scope === "all" && explicitOut) {
-    throw new Error("--out cannot be used with --scope all because all writes one run per scope");
+  if (targetsFor(targetSet).length > 1 && explicitOut) {
+    throw new Error(
+      "--out can only be used when --target selects one bench target",
+    );
   }
 
-  return { scope, cargoArgs, explicitOut };
+  return { targetSet, cargoArgs, explicitOut };
 }
 
-export function scopesFor(scope: BenchScope): Array<"hash" | "prng"> {
-  return scope === "all" ? ["hash", "prng"] : [scope];
+export function targetsFor(targetSet: BenchTargetSet): BenchTargetName[] {
+  if (targetSet === "all") {
+    return [
+      "non_cryptographic_hash",
+      "cryptographic_hash",
+      "u64_generation",
+      "bytes_generation",
+    ];
+  }
+  if (targetSet === "hash") {
+    return ["non_cryptographic_hash", "cryptographic_hash"];
+  }
+  return ["u64_generation", "bytes_generation"];
 }
 
-export function defaultOutputFor(scope: "hash" | "prng"): string {
-  return targets[scope].output;
+export function defaultOutputFor(targetName: BenchTargetName): string {
+  return targets[targetName].output;
 }
 
 export function runBench(argv: readonly string[]): void {
   const parsed = parseBenchArgs(argv);
-  for (const scope of scopesFor(parsed.scope)) {
-    const target = targets[scope];
-    const result = spawnSync(
-      "cargo",
-      [
-        "bench",
-        "--manifest-path",
-        "../Cargo.toml",
-        "-p",
-        target.packageName,
-        "--bench",
-        target.benchName,
-        "--",
-        ...parsed.cargoArgs,
-      ],
-      { stdio: "inherit" },
-    );
+  const originalCwd = process.cwd();
+  process.chdir(repoRoot);
+  try {
+    for (const targetName of targetsFor(parsed.targetSet)) {
+      const target = targets[targetName];
+      const result = spawnSync(
+        "cargo",
+        [
+          "bench",
+          "-p",
+          target.packageName,
+          "--bench",
+          target.benchName,
+          "--",
+          ...parsed.cargoArgs,
+        ],
+        { stdio: "inherit" },
+      );
 
-    if (result.error) {
-      throw result.error;
+      if (result.error) {
+        throw result.error;
+      }
+      if (result.status !== 0) {
+        throw new Error(
+          `${target.packageName} benchmark failed with exit code ${result.status ?? 1}`,
+        );
+      }
     }
-    if (result.status !== 0) {
-      throw new Error(`${target.packageName} benchmark failed with exit code ${result.status ?? 1}`);
-    }
+  } finally {
+    process.chdir(originalCwd);
   }
 }
 
-function isBenchScope(value: string | undefined): value is BenchScope {
+function isBenchTargetSet(value: string | undefined): value is BenchTargetSet {
   return value === "hash" || value === "prng" || value === "all";
 }
 

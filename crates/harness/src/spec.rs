@@ -1,60 +1,21 @@
-use std::{fmt, sync::Arc};
+use std::{
+    collections::HashSet,
+    fmt,
+    hint::black_box,
+    marker::PhantomData,
+    time::{Duration, Instant},
+};
 
 use serde::Serialize;
 
-use crate::profile::BenchmarkProfile;
-
-pub struct BenchmarkTarget {
-    name: String,
-    groups: Vec<BenchmarkGroup>,
-}
-
-impl BenchmarkTarget {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self {
-            name: name.into(),
-            groups: Vec::new(),
-        }
-    }
-
-    pub fn group(mut self, group: BenchmarkGroup) -> Self {
-        self.groups.push(group);
-        self
-    }
-
-    pub(crate) fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub(crate) fn groups(&self) -> &[BenchmarkGroup] {
-        &self.groups
-    }
-}
-
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct BenchmarkMetadata {
-    name: String,
-}
-
-impl From<&BenchmarkTarget> for BenchmarkMetadata {
-    fn from(target: &BenchmarkTarget) -> Self {
-        Self {
-            name: target.name.clone(),
-        }
-    }
-}
+use crate::{HarnessError, Result, profile::BenchmarkProfile};
 
 pub struct BenchmarkGroup {
-    metadata: GroupInfo,
-    workload: WorkloadAxis,
-    quick_sizes: Vec<WorkloadSize>,
-    publish_sizes: Vec<WorkloadSize>,
-    make_points: Box<dyn Fn(BenchmarkProfile) -> Vec<MeasurementPoint> + Send + Sync>,
+    inner: Box<dyn ErasedGroup>,
 }
 
 impl BenchmarkGroup {
-    pub fn new(name: impl Into<String>) -> GroupBuilder<NoWorkload, NoWorkload> {
+    pub fn builder(name: impl Into<String>) -> GroupBuilder<NoWorkload, NoWorkload> {
         GroupBuilder {
             name: name.into(),
             description: String::new(),
@@ -70,22 +31,35 @@ impl BenchmarkGroup {
     }
 
     pub(crate) fn metadata(&self) -> &GroupInfo {
-        &self.metadata
+        self.inner.metadata()
+    }
+
+    pub(crate) fn name(&self) -> &str {
+        &self.metadata().name
     }
 
     pub(crate) fn workload(&self) -> &WorkloadAxis {
-        &self.workload
+        self.inner.workload()
     }
 
     pub(crate) fn sizes_for(&self, profile: BenchmarkProfile) -> &[WorkloadSize] {
-        match profile {
-            BenchmarkProfile::Quick => &self.quick_sizes,
-            BenchmarkProfile::Publish => &self.publish_sizes,
-        }
+        self.inner.sizes_for(profile)
     }
 
-    pub(crate) fn points_for(&self, profile: BenchmarkProfile) -> Vec<MeasurementPoint> {
-        (self.make_points)(profile)
+    pub(crate) fn case_metadata(&self) -> Vec<CaseMetadata> {
+        self.inner.case_metadata()
+    }
+
+    pub(crate) fn visit_points(
+        &self,
+        profile: BenchmarkProfile,
+        visitor: &mut dyn FnMut(MeasurementPoint<'_>) -> Result<()>,
+    ) -> Result<()> {
+        self.inner.visit_points(profile, visitor)
+    }
+
+    pub(crate) fn validate(&self, profile: BenchmarkProfile) -> Result<()> {
+        self.inner.validate(profile)
     }
 }
 
@@ -131,9 +105,9 @@ impl<P, W> GroupBuilder<P, W> {
 }
 
 impl GroupBuilder<NoWorkload, NoWorkload> {
-    pub fn prepare<W, F>(self, prepare: F) -> GroupBuilder<Arc<F>, W>
+    pub fn prepare<W, F>(self, prepare: F) -> GroupBuilder<F, W>
     where
-        F: Fn(WorkloadSize) -> W + Send + Sync + 'static,
+        F: Fn(WorkloadSize) -> W + 'static,
         W: 'static,
     {
         GroupBuilder {
@@ -142,26 +116,28 @@ impl GroupBuilder<NoWorkload, NoWorkload> {
             workload: self.workload,
             quick_sizes: self.quick_sizes,
             publish_sizes: self.publish_sizes,
-            prepare: Arc::new(prepare),
+            prepare,
             cases: Vec::new(),
         }
     }
 }
 
-impl<W, F> GroupBuilder<Arc<F>, W>
+impl<W, F> GroupBuilder<F, W>
 where
-    F: Fn(WorkloadSize) -> W + Send + Sync + 'static,
+    F: Fn(WorkloadSize) -> W + 'static,
     W: 'static,
 {
-    pub fn case<R>(mut self, name: impl Into<String>, color: impl Into<String>, run: R) -> Self
+    pub fn case<C>(self, case: C) -> Self
     where
-        R: Fn(&mut W) -> u128 + Send + Sync + 'static,
+        C: BenchmarkCase<W> + 'static,
+        C::State: 'static,
+        C::Output: 'static,
     {
-        self.cases.push(CaseDefinition {
-            name: name.into(),
-            color: color.into(),
-            run: Arc::new(run),
-        });
+        self.case_erased(Box::new(CaseAdapter { case }))
+    }
+
+    fn case_erased(mut self, case: Box<dyn ErasedCase<W>>) -> Self {
+        self.cases.push(CaseDefinition { case });
         self
     }
 
@@ -173,43 +149,14 @@ where
         let workload = self.workload;
         let quick_sizes = self.quick_sizes;
         let publish_sizes = self.publish_sizes;
-        let prepare = self.prepare;
-        let cases = self.cases;
-
         BenchmarkGroup {
-            metadata: metadata.clone(),
-            workload: workload.clone(),
-            quick_sizes: quick_sizes.clone(),
-            publish_sizes: publish_sizes.clone(),
-            make_points: Box::new(move |profile| {
-                let sizes = match profile {
-                    BenchmarkProfile::Quick => &quick_sizes,
-                    BenchmarkProfile::Publish => &publish_sizes,
-                };
-                let mut points = Vec::new();
-                for &size in sizes {
-                    for case in &cases {
-                        let prepare = Arc::clone(&prepare);
-                        let run = Arc::clone(&case.run);
-                        points.push(MeasurementPoint {
-                            metadata: MeasurementMetadata {
-                                group: metadata.name.clone(),
-                                case: case.name.clone(),
-                                case_color: case.color.clone(),
-                                workload: workload.clone(),
-                                workload_size: size,
-                                calibrated_iterations: None,
-                            },
-                            work: Box::new(move || {
-                                Box::new(PreparedWork {
-                                    workload: prepare(size),
-                                    run: Arc::clone(&run),
-                                }) as Box<dyn BenchWork>
-                            }),
-                        });
-                    }
-                }
-                points
+            inner: Box::new(TypedGroup {
+                metadata,
+                workload,
+                quick_sizes,
+                publish_sizes,
+                prepare: self.prepare,
+                cases: self.cases,
             }),
         }
     }
@@ -219,50 +166,187 @@ where
 pub struct NoWorkload;
 
 struct CaseDefinition<W> {
-    name: String,
-    color: String,
-    run: Arc<dyn Fn(&mut W) -> u128 + Send + Sync>,
+    case: Box<dyn ErasedCase<W>>,
 }
 
-struct PreparedWork<W> {
-    workload: W,
-    run: Arc<dyn Fn(&mut W) -> u128 + Send + Sync>,
+struct CaseAdapter<C> {
+    case: C,
 }
 
-impl<W> BenchWork for PreparedWork<W> {
-    fn run_once(&mut self) -> u128 {
-        (self.run)(&mut self.workload)
+impl<W, C> ErasedCase<W> for CaseAdapter<C>
+where
+    W: 'static,
+    C: BenchmarkCase<W> + 'static,
+    C::State: 'static,
+    C::Output: 'static,
+{
+    fn name(&self) -> &'static str {
+        self.case.name()
+    }
+
+    fn color(&self) -> &'static str {
+        self.case.color()
+    }
+
+    fn make_work<'a>(&'a self, workload: W) -> Box<dyn BenchWork + 'a> {
+        Box::new(CaseWork::<W, C> {
+            case: &self.case,
+            state: self.case.prepare(workload),
+            _workload: PhantomData,
+        })
     }
 }
 
-pub(crate) struct MeasurementPoint {
-    metadata: MeasurementMetadata,
-    work: Box<dyn Fn() -> Box<dyn BenchWork> + Send + Sync>,
+pub trait BenchmarkCase<W> {
+    type State;
+    type Output;
+
+    fn name(&self) -> &'static str;
+
+    fn color(&self) -> &'static str;
+
+    fn prepare(&self, workload: W) -> Self::State;
+
+    fn run_once(&self, state: &mut Self::State) -> Self::Output;
 }
 
-impl MeasurementPoint {
-    pub(crate) fn name(&self) -> String {
-        format!(
-            "{} / {} / {} {}",
-            self.metadata.group,
-            self.metadata.case,
-            self.metadata.workload_size.amount,
-            self.metadata.workload.unit
+trait ErasedCase<W> {
+    fn name(&self) -> &'static str;
+
+    fn color(&self) -> &'static str;
+
+    fn make_work<'a>(&'a self, workload: W) -> Box<dyn BenchWork + 'a>;
+}
+
+struct CaseWork<'a, W, C>
+where
+    C: BenchmarkCase<W>,
+{
+    case: &'a C,
+    state: C::State,
+    _workload: PhantomData<W>,
+}
+
+impl<W, C> BenchWork for CaseWork<'_, W, C>
+where
+    C: BenchmarkCase<W>,
+{
+    fn run_iterations(&mut self, iterations: u64) -> Result<Duration> {
+        let started = Instant::now();
+        for _ in 0..iterations {
+            let output = self.case.run_once(black_box(&mut self.state));
+            black_box(output);
+        }
+        Ok(started.elapsed())
+    }
+}
+
+trait ErasedGroup {
+    fn metadata(&self) -> &GroupInfo;
+
+    fn workload(&self) -> &WorkloadAxis;
+
+    fn sizes_for(&self, profile: BenchmarkProfile) -> &[WorkloadSize];
+
+    fn case_metadata(&self) -> Vec<CaseMetadata>;
+
+    fn visit_points(
+        &self,
+        profile: BenchmarkProfile,
+        visitor: &mut dyn FnMut(MeasurementPoint<'_>) -> Result<()>,
+    ) -> Result<()>;
+
+    fn validate(&self, profile: BenchmarkProfile) -> Result<()>;
+}
+
+struct TypedGroup<W, F> {
+    metadata: GroupInfo,
+    workload: WorkloadAxis,
+    quick_sizes: Vec<WorkloadSize>,
+    publish_sizes: Vec<WorkloadSize>,
+    prepare: F,
+    cases: Vec<CaseDefinition<W>>,
+}
+
+impl<W, F> ErasedGroup for TypedGroup<W, F>
+where
+    F: Fn(WorkloadSize) -> W + 'static,
+    W: 'static,
+{
+    fn metadata(&self) -> &GroupInfo {
+        &self.metadata
+    }
+
+    fn workload(&self) -> &WorkloadAxis {
+        &self.workload
+    }
+
+    fn sizes_for(&self, profile: BenchmarkProfile) -> &[WorkloadSize] {
+        match profile {
+            BenchmarkProfile::Quick => &self.quick_sizes,
+            BenchmarkProfile::Publish => &self.publish_sizes,
+        }
+    }
+
+    fn case_metadata(&self) -> Vec<CaseMetadata> {
+        self.cases
+            .iter()
+            .map(|case| CaseMetadata {
+                name: case.case.name().to_owned(),
+                color: case.case.color().to_owned(),
+            })
+            .collect()
+    }
+
+    fn visit_points(
+        &self,
+        profile: BenchmarkProfile,
+        visitor: &mut dyn FnMut(MeasurementPoint<'_>) -> Result<()>,
+    ) -> Result<()> {
+        for &size in self.sizes_for(profile) {
+            for case in &self.cases {
+                visitor(MeasurementPoint {
+                    metadata: MeasurementMetadata {
+                        group: self.metadata.name.clone(),
+                        case: case.case.name().to_owned(),
+                        workload_size: size,
+                    },
+                    work: Box::new(move || {
+                        let workload = (self.prepare)(size);
+                        case.case.make_work(workload)
+                    }),
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    fn validate(&self, profile: BenchmarkProfile) -> Result<()> {
+        validate_group(
+            &self.metadata,
+            &self.workload,
+            self.sizes_for(profile),
+            self.cases.iter().map(|case| case.case.as_ref()),
         )
     }
+}
 
-    pub(crate) fn metadata(&self, calibrated_iterations: u64) -> MeasurementMetadata {
-        let mut metadata = self.metadata.clone();
-        metadata.calibrated_iterations = Some(calibrated_iterations);
-        metadata
+pub(crate) struct MeasurementPoint<'a> {
+    metadata: MeasurementMetadata,
+    work: Box<dyn Fn() -> Box<dyn BenchWork + 'a> + 'a>,
+}
+
+impl MeasurementPoint<'_> {
+    pub(crate) fn metadata(&self) -> MeasurementMetadata {
+        self.metadata.clone()
     }
 
-    pub(crate) fn work(&self) -> Box<dyn BenchWork> {
+    pub(crate) fn work(&self) -> Box<dyn BenchWork + '_> {
         (self.work)()
     }
 }
 
-impl fmt::Debug for MeasurementPoint {
+impl fmt::Debug for MeasurementPoint<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("MeasurementPoint")
             .field("metadata", &self.metadata)
@@ -288,25 +372,12 @@ pub(crate) struct GroupMetadata {
 
 impl GroupMetadata {
     pub(crate) fn from_group(group: &BenchmarkGroup, profile: BenchmarkProfile) -> Self {
-        let cases = group
-            .points_for(profile)
-            .into_iter()
-            .map(|point| CaseMetadata {
-                name: point.metadata.case,
-                color: point.metadata.case_color,
-            })
-            .fold(Vec::<CaseMetadata>::new(), |mut unique, case| {
-                if !unique.iter().any(|existing| existing.name == case.name) {
-                    unique.push(case);
-                }
-                unique
-            });
         Self {
             name: group.metadata().name.clone(),
             description: group.metadata().description.clone(),
             workload: group.workload().clone(),
             sizes: group.sizes_for(profile).to_vec(),
-            cases,
+            cases: group.case_metadata(),
         }
     }
 }
@@ -323,11 +394,7 @@ pub(crate) struct CaseMetadata {
 pub(crate) struct MeasurementMetadata {
     pub(crate) group: String,
     pub(crate) case: String,
-    pub(crate) case_color: String,
-    pub(crate) workload: WorkloadAxis,
     pub(crate) workload_size: WorkloadSize,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) calibrated_iterations: Option<u64>,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -337,10 +404,18 @@ pub(crate) struct WorkloadAxis {
     unit: String,
 }
 
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Copy, Debug)]
 pub struct WorkloadSize {
     amount: u64,
+}
+
+impl Serialize for WorkloadSize {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_u64(self.amount)
+    }
 }
 
 impl WorkloadSize {
@@ -353,24 +428,181 @@ impl WorkloadSize {
     }
 }
 
-pub trait BenchWork {
-    fn run_once(&mut self) -> u128;
+pub(crate) trait BenchWork {
+    fn run_iterations(&mut self, iterations: u64) -> Result<Duration>;
+}
+
+fn validate_group<'a, W>(
+    metadata: &GroupInfo,
+    workload: &WorkloadAxis,
+    sizes: &[WorkloadSize],
+    cases: impl IntoIterator<Item = &'a dyn ErasedCase<W>>,
+) -> Result<()>
+where
+    W: 'a,
+{
+    let mut errors = Vec::new();
+
+    if metadata.name.trim().is_empty() {
+        errors.push("group name must not be empty".to_owned());
+    }
+    if workload.name.trim().is_empty() {
+        errors.push("workload axis name must not be empty".to_owned());
+    }
+    if workload.unit.trim().is_empty() {
+        errors.push("workload axis unit must not be empty".to_owned());
+    }
+    if sizes.is_empty() {
+        errors.push("selected profile must define at least one workload size".to_owned());
+    }
+
+    let mut seen_sizes = HashSet::new();
+    for size in sizes {
+        if size.amount() == 0 {
+            errors.push("workload sizes must be positive".to_owned());
+        }
+        if !seen_sizes.insert(size.amount()) {
+            errors.push(format!("duplicate workload size {}", size.amount()));
+        }
+    }
+
+    let cases = cases.into_iter().collect::<Vec<_>>();
+    if cases.is_empty() {
+        errors.push("group must define at least one case".to_owned());
+    }
+
+    let mut seen_cases = HashSet::new();
+    for case in cases {
+        let name = case.name();
+        if name.trim().is_empty() {
+            errors.push("case name must not be empty".to_owned());
+        }
+        if !seen_cases.insert(name) {
+            errors.push(format!("duplicate case name {name}"));
+        }
+        if !is_hex_color(case.color()) {
+            errors.push(format!("case {name} color must use #rrggbb hex format"));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(HarnessError::new(format!(
+            "invalid benchmark group {}: {}",
+            metadata.name,
+            errors.join("; ")
+        )))
+    }
+}
+
+fn is_hex_color(color: &str) -> bool {
+    let Some(hex) = color.strip_prefix('#') else {
+        return false;
+    };
+    hex.len() == 6 && hex.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
 
-    pub(crate) fn fixed_target() -> BenchmarkTarget {
-        BenchmarkTarget::new("Test benchmark").group(
-            BenchmarkGroup::new("Test group")
-                .description("Test workload.")
-                .workload_axis("Items", "items")
-                .quick_sizes([1])
-                .publish_sizes([1])
-                .prepare(|size| size.amount())
-                .case("algorithm", "#64748b", |value| u128::from(*value))
-                .build(),
-        )
+    pub(crate) fn fixed_group() -> BenchmarkGroup {
+        BenchmarkGroup::builder("Test group")
+            .description("Test workload.")
+            .workload_axis("Items", "items")
+            .quick_sizes([1])
+            .publish_sizes([1])
+            .prepare(|size| size.amount())
+            .case(TestCase)
+            .build()
+    }
+
+    pub(crate) struct TestCase;
+
+    impl BenchmarkCase<u64> for TestCase {
+        type Output = u64;
+        type State = u64;
+
+        fn name(&self) -> &'static str {
+            "algorithm"
+        }
+
+        fn color(&self) -> &'static str {
+            "#64748b"
+        }
+
+        fn prepare(&self, value: u64) -> Self::State {
+            value
+        }
+
+        fn run_once(&self, value: &mut Self::State) -> Self::Output {
+            *value += 1;
+            *value
+        }
+    }
+
+    struct StringCase;
+
+    impl BenchmarkCase<u64> for StringCase {
+        type Output = String;
+        type State = u64;
+
+        fn name(&self) -> &'static str {
+            "string-algorithm"
+        }
+
+        fn color(&self) -> &'static str {
+            "#ef4444"
+        }
+
+        fn prepare(&self, value: u64) -> Self::State {
+            value
+        }
+
+        fn run_once(&self, value: &mut Self::State) -> Self::Output {
+            *value += 1;
+            value.to_string()
+        }
+    }
+
+    #[test]
+    fn heterogeneous_case_outputs_share_one_group() {
+        let group = BenchmarkGroup::builder("Mixed group")
+            .workload_axis("Items", "items")
+            .quick_sizes([1])
+            .publish_sizes([1])
+            .prepare(|size| size.amount())
+            .case(TestCase)
+            .case(StringCase)
+            .build();
+
+        let mut points = 0;
+        group
+            .visit_points(BenchmarkProfile::Quick, &mut |point| {
+                let mut work = point.work();
+                work.run_iterations(1)?;
+                points += 1;
+                Ok(())
+            })
+            .expect("points");
+        assert_eq!(points, 2);
+    }
+
+    #[test]
+    fn validation_rejects_duplicate_cases() {
+        let group = BenchmarkGroup::builder("Duplicate group")
+            .workload_axis("Items", "items")
+            .quick_sizes([1])
+            .publish_sizes([1])
+            .prepare(|size| size.amount())
+            .case(TestCase)
+            .case(TestCase)
+            .build();
+
+        let error = group
+            .validate(BenchmarkProfile::Quick)
+            .expect_err("duplicate case");
+        assert!(error.to_string().contains("duplicate case"));
     }
 }

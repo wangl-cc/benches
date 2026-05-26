@@ -1,0 +1,40 @@
+{
+  "name": "benchmark-explorer",
+  "main": "worker/src/index.ts",
+  "compatibility_date": "2026-05-21",
+  "assets": {
+    "directory": "site/dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+  },
+  "secrets": {
+    "required": ["CF_ACCESS_TOKENS"],
+  },
+  "d1_databases": [
+    {
+      "binding": "BENCH_DB",
+      "database_name": "benchmark-results",
+      "database_id": "f5d7f7cf-5706-43c2-ae75-5f55966b4dc9",
+      "migrations_dir": "worker/migrations",
+    },
+  ],
+  "env": {
+    "preview": {
+      "secrets": {
+        "required": ["CF_ACCESS_TOKENS"],
+      },
+      "d1_databases": [
+        {
+          "binding": "BENCH_DB",
+          "database_name": "benchmark-results",
+          "database_id": "f5d7f7cf-5706-43c2-ae75-5f55966b4dc9",
+          "migrations_dir": "worker/migrations",
+        },
+      ],
+    },
+  },
+}

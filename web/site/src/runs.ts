@@ -12,21 +12,21 @@ export function latestRunsByHost(runs: BenchmarkRun[]) {
   return byHost;
 }
 
-export function latestRunsByHostForScope(
+export function latestRunsByHostForBenchmark(
   runs: BenchmarkRun[],
   results: BenchmarkResult[],
-  scope: string,
+  benchmarkName: string,
 ) {
-  const runIdsForScope = new Set(
+  const runIdsForBenchmark = new Set(
     results
-      .filter((result) => !scope || result.scope === scope)
+      .filter((result) => !benchmarkName || result.benchmarkName === benchmarkName)
       .map((result) => result.runId),
   );
-  return latestRunsByHost(runs.filter((run) => runIdsForScope.has(run.id)));
+  return latestRunsByHost(runs.filter((run) => runIdsForBenchmark.has(run.id)));
 }
 
-export function latestRunsByHostFromRunScopes(runs: BenchmarkRun[], scope: string) {
+export function latestRunsByHostFromRunBenchmarks(runs: BenchmarkRun[], benchmarkName: string) {
   return latestRunsByHost(
-    runs.filter((run) => !scope || !run.scopes || run.scopes.length === 0 || run.scopes.includes(scope)),
+    runs.filter((run) => !benchmarkName || !run.benchmarkName || run.benchmarkName === benchmarkName),
   );
 }

@@ -16,5 +16,9 @@ sha2 = { workspace = true, features = ["asm"] }
 xxhash-rust = { workspace = true, features = ["xxh3"] }
 
 [[bench]]
-name = "hash"
+name = "non_cryptographic_hash"
+harness = false
+
+[[bench]]
+name = "cryptographic_hash"
 harness = false

@@ -1,13 +1,76 @@
-use std::{env, error::Error, process::ExitCode};
+use std::{env, error::Error, path::PathBuf, process::ExitCode};
 
-use clap::{CommandFactory, FromArgMatches, Parser};
+use clap::{Args, CommandFactory, FromArgMatches, Parser, ValueEnum};
 
 use crate::{
     HarnessError, Result,
-    profile::{BenchmarkProfile, CaptureArgs},
+    profile::{BenchmarkProfile, CaptureConfig, ProfileOverrides},
     runner::capture_benchmark,
-    spec::BenchmarkTarget,
+    spec::BenchmarkGroup,
 };
+
+#[derive(Debug, Clone, Args)]
+pub struct CaptureArgs {
+    /// Measurement profile to use.
+    #[arg(long, value_enum, default_value_t = CliProfile::Publish)]
+    profile: CliProfile,
+
+    /// Alias for --profile quick.
+    #[arg(long)]
+    quick: bool,
+
+    /// Override the number of samples collected per measurement.
+    #[arg(long)]
+    samples: Option<usize>,
+
+    /// Override warmup duration per case in milliseconds.
+    #[arg(long)]
+    warmup_ms: Option<u64>,
+
+    /// Override the minimum calibration duration in milliseconds.
+    #[arg(long)]
+    calibration_ms: Option<u64>,
+
+    /// Override the target measurement duration per sample in milliseconds.
+    #[arg(long)]
+    target_sample_ms: Option<u64>,
+
+    /// Output JSON path. Defaults to target/bench-runs/<benchmark>/latest.json.
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
+impl CaptureArgs {
+    fn into_config(self) -> Result<CaptureConfig> {
+        let profile = if self.quick {
+            BenchmarkProfile::Quick
+        } else {
+            self.profile.into()
+        };
+        let overrides = ProfileOverrides {
+            sample_count: self.samples,
+            warmup_ms: self.warmup_ms,
+            calibration_min_ms: self.calibration_ms,
+            target_sample_ms: self.target_sample_ms,
+        };
+        CaptureConfig::new(profile, overrides, self.out)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum CliProfile {
+    Quick,
+    Publish,
+}
+
+impl From<CliProfile> for BenchmarkProfile {
+    fn from(profile: CliProfile) -> Self {
+        match profile {
+            CliProfile::Quick => Self::Quick,
+            CliProfile::Publish => Self::Publish,
+        }
+    }
+}
 
 #[derive(Debug, Parser)]
 struct CaptureCli {
@@ -16,27 +79,25 @@ struct CaptureCli {
 }
 
 pub fn capture_benchmark_from_env(
-    name: &'static str,
     about: &'static str,
-    build_target: impl FnOnce(BenchmarkProfile) -> BenchmarkTarget,
+    build_group: impl FnOnce() -> BenchmarkGroup,
 ) -> Result<()> {
     let args = env::args().filter(|arg| arg != "--bench");
     let mut command = CaptureCli::command();
-    command = command.name(name).about(about);
+    command = command.about(about);
     let matches = command
         .try_get_matches_from(args)
         .map_err(|error| HarnessError::new(error.to_string()))?;
     let cli = CaptureCli::from_arg_matches(&matches)
         .map_err(|error| HarnessError::new(error.to_string()))?;
-    capture_benchmark(cli.args, build_target)
+    capture_benchmark(cli.args.into_config()?, build_group)
 }
 
 pub fn run_benchmark_from_env(
-    name: &'static str,
     about: &'static str,
-    build_target: impl FnOnce(BenchmarkProfile) -> BenchmarkTarget,
+    build_group: impl FnOnce() -> BenchmarkGroup,
 ) -> ExitCode {
-    match capture_benchmark_from_env(name, about, build_target) {
+    match capture_benchmark_from_env(about, build_group) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("{error}");

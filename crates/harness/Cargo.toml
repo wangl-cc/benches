@@ -8,3 +8,4 @@ license.workspace = true
 clap = { workspace = true, features = ["derive"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+time = { workspace = true }

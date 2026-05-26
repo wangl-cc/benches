@@ -21,16 +21,16 @@ import { labelize, toggleValue } from "./utils";
 export function App() {
   const [data, setData] = useState<ExplorerData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scope, setScope] = useState("");
+  const [benchmarkName, setBenchmarkName] = useState("");
   const [group, setGroup] = useState("");
-  const [benchmark, setBenchmark] = useState("");
+  const [workload, setWorkload] = useState("");
   const [query, setQuery] = useState("");
   const [platformIds, setPlatformIds] = useState<string[]>([]);
   const [algorithmIds, setAlgorithmIds] = useState<string[]>([]);
   const [focusedAlgorithm, setFocusedAlgorithm] = useState<string | null>(null);
   const [focusedPlatform, setFocusedPlatform] = useState<string | null>(null);
   const [trendXScale, setTrendXScale] = useState<AxisScale>("log");
-  const [trendYScale, setTrendYScale] = useState<AxisScale>("log");
+  const [trendYScale, setTrendYScale] = useState<AxisScale>("linear");
   const [rankingGroup, setRankingGroup] = useState<RankingGroup>("algorithm");
   const [tailMetric, setTailMetric] = useState<TailLatencyMetric>("p95");
 
@@ -39,9 +39,9 @@ export function App() {
       .then((nextData) => {
         setData(nextData);
         const defaults = deriveDefaults(nextData);
-        setScope(defaults.scope);
+        setBenchmarkName(defaults.benchmarkName);
         setGroup(defaults.group);
-        setBenchmark(defaults.benchmark);
+        setWorkload(defaults.workload);
         setPlatformIds(defaults.platformIds);
         setAlgorithmIds(defaults.algorithmIds);
       })
@@ -50,9 +50,9 @@ export function App() {
         const fallback = fixtureData();
         setData(fallback);
         const defaults = deriveDefaults(fallback);
-        setScope(defaults.scope);
+        setBenchmarkName(defaults.benchmarkName);
         setGroup(defaults.group);
-        setBenchmark(defaults.benchmark);
+        setWorkload(defaults.workload);
         setPlatformIds(defaults.platformIds);
         setAlgorithmIds(defaults.algorithmIds);
       });
@@ -63,28 +63,28 @@ export function App() {
       return null;
     }
     return buildExplorerModel(data, {
-      scope,
+      benchmarkName,
       group,
-      benchmark,
+      workload,
       query,
       platformIds,
       algorithmIds,
       rankingGroup,
     });
-  }, [algorithmIds, benchmark, data, group, rankingGroup, platformIds, query, scope]);
+  }, [algorithmIds, workload, data, group, rankingGroup, platformIds, query, benchmarkName]);
 
   useEffect(() => {
     if (!model) {
       return;
     }
-    if (!model.scopes.includes(scope)) {
-      setScope(model.scopes[0] ?? "");
+    if (!model.benchmarkNames.includes(benchmarkName)) {
+      setBenchmarkName(model.benchmarkNames[0] ?? "");
     }
     if (!model.groups.includes(group)) {
       setGroup(model.groups[0] ?? "");
     }
-    if (!model.benchmarks.includes(benchmark)) {
-      setBenchmark(model.benchmarks[0] ?? "");
+    if (!model.workloads.includes(workload)) {
+      setWorkload(model.workloads[0] ?? "");
     }
     if (!sameSelection(platformIds, model.selectedHostIds)) {
       setPlatformIds(model.selectedHostIds);
@@ -98,7 +98,7 @@ export function App() {
     if (focusedPlatform && !model.selectedHostIds.includes(focusedPlatform)) {
       setFocusedPlatform(null);
     }
-  }, [algorithmIds, benchmark, focusedAlgorithm, focusedPlatform, group, model, platformIds, scope]);
+  }, [algorithmIds, workload, focusedAlgorithm, focusedPlatform, group, model, platformIds, benchmarkName]);
 
   if (!data || !model) {
     return (
@@ -121,25 +121,25 @@ export function App() {
         <LeftRail
           source={data.source}
           apiError={error}
-          scopes={model.scopes}
+          benchmarkNames={model.benchmarkNames}
           groups={model.groups}
-          algorithms={model.availableAlgorithms}
+          algorithms={model.visibleAlgorithms}
           algorithmColors={model.algorithmColors}
           selectedAlgorithms={algorithmIds}
-          activeScope={scope}
+          activeBenchmarkName={benchmarkName}
           activeGroup={group}
           query={query}
           visibleCount={model.visibleRows.length}
-          onScopeChange={setScope}
+          onBenchmarkNameChange={setBenchmarkName}
           onGroupChange={setGroup}
           onAlgorithmToggle={(algorithm) => setAlgorithmIds(toggleValue(algorithmIds, algorithm))}
-          onClearAlgorithms={() => setAlgorithmIds(model.availableAlgorithms.slice(0, 4))}
+          onClearAlgorithms={() => setAlgorithmIds(model.availableAlgorithms)}
           onQueryChange={setQuery}
           onReset={() => {
             const defaults = deriveDefaults(data);
-            setScope(defaults.scope);
+            setBenchmarkName(defaults.benchmarkName);
             setGroup(defaults.group);
-            setBenchmark(defaults.benchmark);
+            setWorkload(defaults.workload);
             setPlatformIds(defaults.platformIds);
             setAlgorithmIds(defaults.algorithmIds);
             setQuery("");
@@ -149,7 +149,7 @@ export function App() {
         />
         <main className="workspace">
           <ComparisonBar
-            title={`${labelize(group || scope)} Comparison`}
+            title={`${labelize(group || benchmarkName)} Comparison`}
             description={model.workloadDescription}
             hosts={model.hosts}
             selectedHostIds={platformIds}
@@ -161,14 +161,15 @@ export function App() {
               unit={model.unit}
               xScaleMode={trendXScale}
               yScaleMode={trendYScale}
-              activeBenchmark={benchmark}
-              representativeBenchmark={model.representativeBenchmark}
-              autoBenchmark={model.autoBenchmark}
+              activeWorkload={workload}
+              representativeWorkload={model.representativeWorkload}
+              autoWorkload={model.autoWorkload}
+              workloads={model.workloads}
               focusedAlgorithm={activeAlgorithm}
               focusedPlatform={focusedPlatform}
               onFocusAlgorithm={toggleFocusedAlgorithm}
               onFocusPlatform={toggleFocusedPlatform}
-              onBenchmarkChange={setBenchmark}
+              onWorkloadChange={setWorkload}
               onXScaleChange={setTrendXScale}
               onYScaleChange={setTrendYScale}
             />

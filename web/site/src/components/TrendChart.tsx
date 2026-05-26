@@ -1,10 +1,10 @@
 import { ResponsiveLine } from "@nivo/line";
-import type { LineCustomSvgLayerProps } from "@nivo/line";
-import { LineChart } from "lucide-react";
-import { useMemo } from "react";
+import type { LineCustomSvgLayerProps, Point } from "@nivo/line";
+import { ChevronDown, LineChart } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { colorForAlgorithm } from "../colors";
 import { commonInputUnit, formatInputValue, formatMetricValue } from "../format";
-import { AUTO_BENCHMARK } from "../model";
+import { AUTO_WORKLOAD } from "../model";
 import type { AxisScale, TrendSeries } from "../types";
 import { uniqueBy, uniqueSorted } from "../utils";
 import { benchmarkChartTheme } from "./chartTheme";
@@ -28,22 +28,21 @@ type NivoTrendSeries = {
 };
 
 const MAX_X_TICKS = 5;
-const MAX_Y_TICKS = 7;
-const LOG_TICK_MANTISSAS = [1, 2, 5] as const;
 
 export function TrendChart({
   series,
   unit,
   xScaleMode,
   yScaleMode,
-  activeBenchmark,
-  representativeBenchmark,
-  autoBenchmark,
+  activeWorkload,
+  representativeWorkload,
+  autoWorkload,
+  workloads,
   focusedAlgorithm,
   focusedPlatform,
   onFocusAlgorithm,
   onFocusPlatform,
-  onBenchmarkChange,
+  onWorkloadChange,
   onXScaleChange,
   onYScaleChange,
 }: {
@@ -51,14 +50,15 @@ export function TrendChart({
   unit: string;
   xScaleMode: AxisScale;
   yScaleMode: AxisScale;
-  activeBenchmark: string;
-  representativeBenchmark: string;
-  autoBenchmark: string;
+  activeWorkload: string;
+  representativeWorkload: string;
+  autoWorkload: string;
+  workloads: string[];
   focusedAlgorithm: string | null;
   focusedPlatform: string | null;
   onFocusAlgorithm: (algorithm: string) => void;
   onFocusPlatform: (hostId: string) => void;
-  onBenchmarkChange: (benchmark: string) => void;
+  onWorkloadChange: (workload: string) => void;
   onXScaleChange: (scale: AxisScale) => void;
   onYScaleChange: (scale: AxisScale) => void;
 }) {
@@ -74,12 +74,11 @@ export function TrendChart({
     .map((point) => ({ label: point.label, x: point.x }))
     .sort((leftPoint, rightPoint) => leftPoint.x - rightPoint.x);
   const selectableInputs = uniqueBy(inputCandidates, (point) => point.label);
-  const selectedInput = selectableInputs.find((input) => input.label === representativeBenchmark);
-  const activeRankLabel = activeBenchmark.startsWith(AUTO_BENCHMARK) ? `Auto: ${representativeBenchmark}` : representativeBenchmark;
+  const selectedInput = selectableInputs.find((input) => input.label === representativeWorkload);
+  const activeRankLabel = activeWorkload.startsWith(AUTO_WORKLOAD) ? `Auto: ${representativeWorkload}` : representativeWorkload;
   const xValues = uniqueNumbers(allPoints.map((point) => point.x));
   const yValues = uniqueNumbers(allPoints.map((point) => point.y));
   const xTickValues = sparseTicks(xValues, MAX_X_TICKS);
-  const yTickValues = axisTicks(yValues, yScaleMode, MAX_Y_TICKS);
   const yDomain = paddedYDomain(yValues, yScaleMode);
   const chartData: NivoTrendSeries[] = series.map((item) => ({
     id: item.id,
@@ -98,8 +97,8 @@ export function TrendChart({
       })),
   }));
   const trendLayer = useMemo(
-    () => makeTrendLayer(focusedAlgorithm, focusedPlatform),
-    [focusedAlgorithm, focusedPlatform],
+    () => makeTrendLayer(focusedAlgorithm, focusedPlatform, representativeWorkload, onWorkloadChange),
+    [focusedAlgorithm, focusedPlatform, representativeWorkload, onWorkloadChange],
   );
 
   return (
@@ -109,15 +108,12 @@ export function TrendChart({
         title="Throughput vs Input Size"
         controls={
           <>
-            <ControlGroup label="Rank size">
-              <button
-                type="button"
-                className={activeBenchmark.startsWith(AUTO_BENCHMARK) ? "chart-chip active" : "chart-chip"}
-                onClick={() => onBenchmarkChange(autoBenchmark)}
-              >
-                {activeRankLabel}
-              </button>
-            </ControlGroup>
+            <RankSizePicker
+              value={activeWorkload || autoWorkload}
+              label={activeRankLabel}
+              workloads={workloads}
+              onChange={onWorkloadChange}
+            />
             <ControlGroup label="X">
               <SegmentedControl
                 values={["linear", "log"]}
@@ -157,7 +153,6 @@ export function TrendChart({
                 tickSize: 4,
                 tickPadding: 8,
                 tickRotation: 0,
-                tickValues: yTickValues,
                 format: (value) => formatMetricValue(Number(value), unit),
               }}
               colors={(item) => item.color}
@@ -167,15 +162,11 @@ export function TrendChart({
               enablePoints={false}
               enableSlices={false}
               useMesh
-              onClick={(datum) => {
-                if ("data" in datum) {
-                  onBenchmarkChange(datum.data.label);
-                }
-              }}
               animate={false}
               lineWidth={2.2}
               xFormat={(value) => formatInputValue(Number(value), xUnit)}
               yFormat={(value) => formatMetricValue(Number(value), unit)}
+              onClick={(point) => selectPointWorkload(point, onWorkloadChange)}
               markers={
                 selectedInput
                   ? [
@@ -228,6 +219,93 @@ export function TrendChart({
   );
 }
 
+function RankSizePicker({
+  value,
+  label,
+  workloads,
+  onChange,
+}: {
+  value: string;
+  label: string;
+  workloads: string[];
+  onChange: (workload: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
+  }, [open]);
+
+  return (
+    <div
+      className="rank-size-picker"
+      ref={menuRef}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          setOpen(false);
+        }
+      }}
+    >
+      <span>Rank size</span>
+      <div className="rank-size-control">
+        <button
+          type="button"
+          className="rank-size-trigger"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          onClick={() => setOpen((current) => !current)}
+        >
+          <strong>{label}</strong>
+          <ChevronDown className="size-4" />
+        </button>
+        {open ? (
+          <div className="rank-size-menu" role="listbox" aria-label="Rank size">
+            {workloads.map((workload) => {
+              const active = workload === value;
+              return (
+                <button
+                  key={workload}
+                  type="button"
+                  className={active ? "rank-size-menu-item active" : "rank-size-menu-item"}
+                  role="option"
+                  aria-selected={active}
+                  onClick={() => {
+                    onChange(workload);
+                    setOpen(false);
+                  }}
+                >
+                  <span>{workload.startsWith(AUTO_WORKLOAD) ? label : workload}</span>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function selectPointWorkload(
+  datum: Readonly<Point<NivoTrendSeries>> | { readonly points: readonly Point<NivoTrendSeries>[] },
+  onWorkloadChange: (workload: string) => void,
+) {
+  const point = "points" in datum ? datum.points[0] : datum;
+  const label = point && typeof point.data.label === "string" ? point.data.label : "";
+  if (label) {
+    onWorkloadChange(label);
+  }
+}
+
 function scaleSpec(mode: AxisScale, min: number | "auto" = "auto", max: number | "auto" = "auto") {
   return {
     type: mode,
@@ -253,61 +331,24 @@ function sparseTicks(values: number[], maxTicks: number) {
   return [...new Set(ticks)];
 }
 
-function axisTicks(values: number[], mode: AxisScale, maxTicks: number) {
-  if (mode === "linear") {
-    return linearTicks(values, maxTicks);
-  }
-  return logTicks(values, maxTicks);
-}
-
-function linearTicks(values: number[], maxTicks: number) {
-  if (values.length === 0) {
-    return [];
-  }
-
-  const maxValue = Math.max(...values);
-  const paddedMax = maxValue * 1.08;
-  const tickCount = Math.max(2, maxTicks);
-  return Array.from({ length: tickCount }, (_, index) => (paddedMax * index) / (tickCount - 1));
-}
-
-function logTicks(values: number[], maxTicks: number) {
-  if (values.length === 0) {
-    return [];
-  }
-
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values) * 1.15;
-  const minExponent = Math.floor(Math.log10(minValue));
-  const maxExponent = Math.ceil(Math.log10(maxValue));
-  const candidates: number[] = [];
-
-  for (let exponent = minExponent; exponent <= maxExponent; exponent += 1) {
-    const magnitude = 10 ** exponent;
-    for (const mantissa of LOG_TICK_MANTISSAS) {
-      const value = mantissa * magnitude;
-      if (value >= minValue && value <= maxValue) {
-        candidates.push(value);
-      }
-    }
-  }
-
-  return sparseTicks(candidates, maxTicks);
-}
-
 function paddedYDomain(values: number[], mode: AxisScale): { min: number | "auto"; max: number | "auto" } {
   if (values.length === 0) {
     return { min: mode === "linear" ? 0 : "auto", max: "auto" };
   }
 
-  const maxValue = Math.max(...values);
+  const minValue = Math.min(...values);
   if (mode === "linear") {
-    return { min: 0, max: maxValue * 1.08 };
+    return { min: 0, max: "auto" };
   }
-  return { min: "auto", max: maxValue * 1.15 };
+  return { min: minValue / 1.15, max: "auto" };
 }
 
-function makeTrendLayer(focusedAlgorithm: string | null, focusedPlatform: string | null) {
+function makeTrendLayer(
+  focusedAlgorithm: string | null,
+  focusedPlatform: string | null,
+  representativeWorkload: string,
+  onWorkloadChange: (workload: string) => void,
+) {
   return function TrendLayer({ series, points, lineGenerator }: LineCustomSvgLayerProps<NivoTrendSeries>) {
     return (
       <g>
@@ -338,7 +379,26 @@ function makeTrendLayer(focusedAlgorithm: string | null, focusedPlatform: string
               ((focusedAlgorithm && focusedAlgorithm !== seriesItem.algorithm) ||
                 (focusedPlatform && focusedPlatform !== seriesItem.hostId)),
           );
-          return <circle key={point.id} cx={point.x} cy={point.y} r="3.4" fill={point.seriesColor} opacity={dimmed ? 0.24 : 1} />;
+          const label = typeof point.data.label === "string" ? point.data.label : "";
+          const selected = label === representativeWorkload;
+          return (
+            <circle
+              key={point.id}
+              cx={point.x}
+              cy={point.y}
+              r={selected ? 4.2 : 3.4}
+              fill={point.seriesColor}
+              opacity={dimmed ? 0.24 : 1}
+              stroke={selected ? "#ffffff" : "transparent"}
+              strokeWidth={selected ? 1.8 : 0}
+              className="trend-point"
+              onClick={() => {
+                if (label) {
+                  onWorkloadChange(label);
+                }
+              }}
+            />
+          );
         })}
       </g>
     );

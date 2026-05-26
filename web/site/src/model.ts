@@ -8,7 +8,7 @@ import {
   parseBenchmarkAmount,
   compactRunLabel,
 } from "./format";
-import { latestRunsByHostForScope } from "./runs";
+import { latestRunsByHostForBenchmark } from "./runs";
 import type {
   BenchmarkResult,
   ExplorerData,
@@ -21,15 +21,15 @@ import type {
   TailLatencyRow,
   TrendSeries,
 } from "./types";
-import { uniqueBy, uniqueSorted } from "./utils";
+import { labelize, uniqueBy, uniqueSorted } from "./utils";
 
-export const AUTO_BENCHMARK = "Auto range";
+export const AUTO_WORKLOAD = "Auto range";
 export const THROUGHPUT_METRIC = "throughput";
 const platformDashes = ["", "6 4", "2 4", "10 4"];
 
 export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState): ExplorerModel {
   const runById = new Map(data.runs.map((run) => [run.id, run]));
-  const latestRunByHost = latestRunsByHostForScope(data.runs, data.results, state.scope);
+  const latestRunByHost = latestRunsByHostForBenchmark(data.runs, data.results, state.benchmarkName);
   const hosts = uniqueBy([...latestRunByHost.values()], (run) => run.host.id).map((run) => ({
     id: run.host.id,
     label: run.host.label,
@@ -44,22 +44,23 @@ export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState
   const selectedRunIds = new Set(
     selectedHostIds.map((hostId) => latestRunByHost.get(hostId)?.id).filter((id): id is string => Boolean(id)),
   );
-  const scopes = uniqueSorted(data.results.map((result) => result.scope));
-  const scopedRows = data.results.filter((result) => !state.scope || result.scope === state.scope);
-  const groups = uniqueSorted(scopedRows.map((result) => result.group));
-  const groupedRows = scopedRows.filter((result) => !state.group || result.group === state.group);
+  const benchmarkNames = sortBenchmarkNames(uniqueSorted(data.results.map((result) => result.benchmarkName)));
+  const benchmarkRows = data.results.filter((result) => !state.benchmarkName || result.benchmarkName === state.benchmarkName);
+  const groups = uniqueSorted(benchmarkRows.map((result) => result.group));
+  const groupedRows = benchmarkRows.filter((result) => !state.group || result.group === state.group);
   const throughputRows = groupedRows.filter((result) => result.metric === THROUGHPUT_METRIC);
-  const rawBenchmarks = sortBenchmarks(uniqueSorted(throughputRows.map((result) => result.benchmark)));
-  const benchmarks = rawBenchmarks.length > 1 ? [autoBenchmarkLabel(rawBenchmarks), ...rawBenchmarks] : rawBenchmarks;
-  const selectedBenchmark = state.benchmark.startsWith(AUTO_BENCHMARK) ? "" : state.benchmark;
+  const rawWorkloads = sortWorkloads(uniqueSorted(throughputRows.map((result) => result.workload)));
+  const workloads = rawWorkloads.length > 1 ? [autoWorkloadLabel(rawWorkloads), ...rawWorkloads] : rawWorkloads;
+  const selectedWorkload = state.workload.startsWith(AUTO_WORKLOAD) ? "" : state.workload;
   const search = state.query.trim().toLowerCase();
   const searchedRows = throughputRows.filter((result) =>
-    search ? `${result.algorithm} ${result.benchmark} ${result.group}`.toLowerCase().includes(search) : true,
+    search ? `${result.algorithm} ${result.workload} ${result.group}`.toLowerCase().includes(search) : true,
   );
   const matchingAlgorithms = uniqueSorted(searchedRows.map((result) => result.algorithm));
-  const availableAlgorithms = search ? matchingAlgorithms : uniqueSorted(throughputRows.map((result) => result.algorithm));
-  const algorithmColors = buildAlgorithmColorMap(searchedRows);
-  const selectedAlgorithms = reconcileSelection(state.algorithmIds, availableAlgorithms, 4);
+  const availableAlgorithms = uniqueSorted(throughputRows.map((result) => result.algorithm));
+  const visibleAlgorithms = search ? matchingAlgorithms : availableAlgorithms;
+  const algorithmColors = buildAlgorithmColorMap(throughputRows);
+  const selectedAlgorithms = reconcileSelectionWithDefault(state.algorithmIds, availableAlgorithms);
   const effectiveAlgorithms = effectiveAlgorithmSelection(selectedAlgorithms, matchingAlgorithms, search);
   const toResultRow = (result: BenchmarkResult): ResultRow => {
     const run = runById.get(result.runId);
@@ -74,9 +75,9 @@ export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState
     .filter((result) => selectedRunIds.has(result.runId))
     .filter((result) => effectiveAlgorithms.includes(result.algorithm))
     .map(toResultRow);
-  const representativeBenchmark = selectedBenchmark || representativeBenchmarkFor(trendRows);
-  const autoBenchmark = benchmarks.find((item) => item.startsWith(AUTO_BENCHMARK)) ?? representativeBenchmark;
-  const visibleRows = trendRows.filter((result) => !representativeBenchmark || result.benchmark === representativeBenchmark);
+  const representativeWorkload = selectedWorkload || representativeWorkloadFor(trendRows);
+  const autoWorkload = workloads.find((item) => item.startsWith(AUTO_WORKLOAD)) ?? representativeWorkload;
+  const visibleRows = trendRows.filter((result) => !representativeWorkload || result.workload === representativeWorkload);
   const trendSeries = buildTrendSeries(trendRows);
   const rankingGroups = buildRankingGroups(visibleRows, state.rankingGroup);
   const unit = trendRows[0]?.unit ?? throughputRows[0]?.unit ?? "";
@@ -84,13 +85,14 @@ export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState
   return {
     hosts,
     selectedHostIds,
-    scopes,
+    benchmarkNames,
     groups,
     workloadDescription,
-    benchmarks,
-    representativeBenchmark,
-    autoBenchmark,
+    workloads,
+    representativeWorkload,
+    autoWorkload,
     availableAlgorithms,
+    visibleAlgorithms,
     algorithmColors,
     selectedAlgorithms,
     visibleRows,
@@ -101,22 +103,22 @@ export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState
 }
 
 export function deriveDefaults(data: ExplorerData) {
-  const scope = uniqueSorted(data.results.map((result) => result.scope))[0] ?? "";
-  const group = uniqueSorted(data.results.filter((result) => result.scope === scope).map((result) => result.group))[0] ?? "";
+  const benchmarkName = sortBenchmarkNames(uniqueSorted(data.results.map((result) => result.benchmarkName)))[0] ?? "";
+  const group = uniqueSorted(data.results.filter((result) => result.benchmarkName === benchmarkName).map((result) => result.group))[0] ?? "";
   const throughputRows = data.results
-    .filter((result) => result.scope === scope)
+    .filter((result) => result.benchmarkName === benchmarkName)
     .filter((result) => result.group === group)
     .filter((result) => result.metric === THROUGHPUT_METRIC);
-  const rawBenchmarks = sortBenchmarks(uniqueSorted(throughputRows.map((result) => result.benchmark)));
-  const benchmark = rawBenchmarks.length > 1 ? autoBenchmarkLabel(rawBenchmarks) : (rawBenchmarks[0] ?? "");
-  const hosts = [...latestRunsByHostForScope(data.runs, data.results, scope).values()];
-  const algorithmIds = uniqueSorted(throughputRows.map((result) => result.algorithm)).slice(0, 4);
+  const rawWorkloads = sortWorkloads(uniqueSorted(throughputRows.map((result) => result.workload)));
+  const workload = rawWorkloads.length > 1 ? autoWorkloadLabel(rawWorkloads) : (rawWorkloads[0] ?? "");
+  const hosts = [...latestRunsByHostForBenchmark(data.runs, data.results, benchmarkName).values()];
+  const availableAlgorithms = uniqueSorted(throughputRows.map((result) => result.algorithm));
   return {
-    scope,
+    benchmarkName,
     group,
-    benchmark,
+    workload,
     platformIds: hosts.slice(0, 3).map((run) => run.host.id),
-    algorithmIds,
+    algorithmIds: availableAlgorithms,
   };
 }
 
@@ -126,10 +128,22 @@ function reconcileSelection(selected: string[], available: string[], defaultCoun
   return retained.length > 0 ? retained : available.slice(0, defaultCount);
 }
 
+function reconcileSelectionWithDefault(
+  selected: string[],
+  available: string[],
+): string[] {
+  const availableSet = new Set(available);
+  const retained = selected.filter((item) => availableSet.has(item));
+  if (retained.length > 0) {
+    return retained;
+  }
+  return available;
+}
+
 export function buildTrendSeries(rows: ResultRow[]): TrendSeries[] {
   const bySeries = new Map<string, ResultRow[]>();
   for (const row of rows) {
-    const parsedInput = parseBenchmarkAmount(row.benchmark);
+    const parsedInput = parseBenchmarkAmount(row.workload);
     const amount = row.inputAmount ?? parsedInput?.amount;
     if (!amount || amount <= 0) {
       continue;
@@ -156,7 +170,7 @@ export function buildTrendSeries(rows: ResultRow[]): TrendSeries[] {
           .map((row) => ({
             x: row.inputAmount ?? 0,
             y: row.value,
-            label: row.benchmark,
+            label: row.workload,
             unit: row.inputUnit,
           })),
       };
@@ -197,6 +211,7 @@ export function buildTailLatencyBands(
         p50: source?.tailLatency?.medianNsPerIter,
         p90: source?.tailLatency?.p90NsPerIter,
         p95: source?.tailLatency?.p95NsPerIter,
+        p99: source?.tailLatency?.p99NsPerIter,
       };
     }),
   }));
@@ -251,7 +266,7 @@ function buildGroupedBarGroups({
         id,
         label: group.label,
         rankValue: sortedRows[0]?.value ?? 0,
-        rows: sortedRows.slice(0, 4).map(({ row, value }) => ({
+        rows: sortedRows.map(({ row, value }) => ({
           id: `${row.id}-${row.hostId}-${rowIdSuffix}`,
           sourceId: row.id,
           label: rowLabel(row),
@@ -280,21 +295,21 @@ function measurementDetail(row: ResultRow) {
   return `${row.algorithm} on ${row.hostLabel}: ${formatRsd(row.relativeStdDev)} RSD, ${formatNumber.format(row.samples ?? 0)} samples`;
 }
 
-function autoBenchmarkLabel(benchmarks: string[]) {
-  const inputs = benchmarks
+function autoWorkloadLabel(workloads: string[]) {
+  const inputs = workloads
     .map(parseBenchmarkAmount)
     .filter((input): input is { amount: number; unit: string } => input !== undefined)
     .sort((left, right) => left.amount - right.amount);
   if (inputs.length < 2) {
-    return AUTO_BENCHMARK;
+    return AUTO_WORKLOAD;
   }
   const first = inputs[0];
   const last = inputs[inputs.length - 1];
-  return `${AUTO_BENCHMARK} (${formatInputValue(first.amount, first.unit)} - ${formatInputValue(last.amount, last.unit)})`;
+  return `${AUTO_WORKLOAD} (${formatInputValue(first.amount, first.unit)} - ${formatInputValue(last.amount, last.unit)})`;
 }
 
-function sortBenchmarks(benchmarks: string[]) {
-  return [...benchmarks].sort((left, right) => {
+function sortWorkloads(workloads: string[]) {
+  return [...workloads].sort((left, right) => {
     const leftAmount = parseBenchmarkAmount(left)?.amount;
     const rightAmount = parseBenchmarkAmount(right)?.amount;
     if (leftAmount !== undefined && rightAmount !== undefined) {
@@ -310,15 +325,23 @@ function sortBenchmarks(benchmarks: string[]) {
   });
 }
 
-function representativeBenchmarkFor(rows: ResultRow[]) {
-  const byBenchmark = new Map<string, number>();
+function sortBenchmarkNames(benchmarkNames: string[]) {
+  return [...benchmarkNames].sort((left, right) => {
+    const leftLabel = labelize(left);
+    const rightLabel = labelize(right);
+    return leftLabel.localeCompare(rightLabel);
+  });
+}
+
+function representativeWorkloadFor(rows: Array<Pick<BenchmarkResult, "workload" | "inputAmount">>) {
+  const byWorkload = new Map<string, number>();
   for (const row of rows) {
-    const amount = row.inputAmount ?? parseBenchmarkAmount(row.benchmark)?.amount;
+    const amount = row.inputAmount ?? parseBenchmarkAmount(row.workload)?.amount;
     if (amount) {
-      byBenchmark.set(row.benchmark, amount);
+      byWorkload.set(row.workload, amount);
     }
   }
-  const candidates = [...byBenchmark.entries()].sort((left, right) => left[1] - right[1]);
+  const candidates = [...byWorkload.entries()].sort((left, right) => left[1] - right[1]);
   return candidates.find(([, amount]) => amount >= 4096)?.[0] ?? candidates[candidates.length - 1]?.[0] ?? "";
 }
 

@@ -4,33 +4,37 @@ import { test } from "node:test";
 import { validateBenchRun } from "../packages/bench-schema/src/index.ts";
 import { hashRun } from "./publish.ts";
 import {
+  compressRawRun,
+  decompressRawRun,
   deriveSummaries,
   parseUploadTokens,
   validateIngestPolicy,
 } from "../worker/src/index.ts";
 
 const validRun = {
-  schemaVersion: "bench.run.v2",
+  schemaVersion: "bench.run.v3",
   runId: "run-1",
   createdAt: "2026-05-21T00:00:00Z",
   git: { commit: "abc123" },
   host: { id: "host-1" },
-  harness: { name: "harness" },
-  scopes: [{ id: "hash", title: "Hash" }],
-  cases: [
+  harness: { name: "harness", profile: "publish" },
+  groups: [
     {
-      id: "case-1",
-      scopeId: "hash",
-      group: "cryptographic_hash",
-      workloadDescription: "Hashes deterministic byte buffers with cryptographic hash functions.",
-      algorithm: "BLAKE3-256",
-      algorithmColor: "#0f766e",
-      input: { kind: "bytes", amount: 64, unit: "bytes" },
+      name: "Cryptographic Hash",
+      description: "Hashes deterministic byte buffers with cryptographic hash functions.",
+      workload: { name: "Message size", unit: "bytes" },
+      sizes: [64],
+      cases: [{ name: "BLAKE3-256", color: "#0f766e" }],
     },
   ],
-  samples: [{ caseId: "case-1", sampleIndex: 0, iterations: 10, elapsedNs: 100 }],
-  checksums: { artifact: "sha256:abc" },
-  warnings: [],
+  measurements: [
+    {
+      group: "Cryptographic Hash",
+      case: "BLAKE3-256",
+      workloadSize: 64,
+      samples: [{ iterations: 10, elapsedNs: 100 }],
+    },
+  ],
 };
 
 test("validates the publish run contract", () => {
@@ -43,10 +47,21 @@ test("rejects missing top-level fields", () => {
   equal(result.ok, false);
 });
 
-test("rejects samples for unknown cases", () => {
+test("rejects unknown public raw fields", () => {
   const result = validateBenchRun({
     ...validRun,
-    samples: [{ caseId: "missing-case", sampleIndex: 0, iterations: 10, elapsedNs: 100 }],
+    groups: [{ ...validRun.groups[0], extra: true }],
+  });
+  equal(result.ok, false);
+  if (!result.ok) {
+    match(result.issues.map((issue) => issue.message).join("\n"), /unknown field/);
+  }
+});
+
+test("rejects measurements for unknown cases", () => {
+  const result = validateBenchRun({
+    ...validRun,
+    measurements: [{ ...validRun.measurements[0], case: "missing-case" }],
   });
   equal(result.ok, false);
 });
@@ -54,7 +69,15 @@ test("rejects samples for unknown cases", () => {
 test("rejects duplicate case ids", () => {
   const result = validateBenchRun({
     ...validRun,
-    cases: [validRun.cases[0], validRun.cases[0]],
+    groups: [
+      {
+        ...validRun.groups[0],
+        cases: [
+          validRun.groups[0].cases[0],
+          validRun.groups[0].cases[0],
+        ],
+      },
+    ],
   });
   equal(result.ok, false);
 });
@@ -72,7 +95,7 @@ test("hashes canonical run JSON", async () => {
 test("production ingest policy rejects quick runs", () => {
   const result = validateBenchRun({
     ...validRun,
-    harness: { name: "harness", quick: true },
+    harness: { name: "harness", profile: "quick" },
   });
   if (!result.ok) {
     throw new Error("fixture should be valid");
@@ -86,7 +109,7 @@ test("production ingest policy rejects quick runs", () => {
 test("test ingest policy accepts quick runs", () => {
   const result = validateBenchRun({
     ...validRun,
-    harness: { name: "harness", mode: "quick" },
+    harness: { name: "harness", profile: "quick" },
   });
   if (!result.ok) {
     throw new Error("fixture should be valid");
@@ -99,21 +122,26 @@ test("test ingest policy accepts quick runs", () => {
 test("derives throughput summaries from raw samples", () => {
   const result = validateBenchRun({
     ...validRun,
-    cases: [
+    groups: [
       {
-        id: "case-1",
-        scopeId: "hash",
-        group: "cryptographic_hash",
-        workloadDescription: "Hashes deterministic byte buffers with cryptographic hash functions.",
-        algorithm: "BLAKE3-256",
-        algorithmColor: "#0f766e",
-        input: { kind: "bytes", amount: 64, unit: "bytes" },
+        name: "Cryptographic Hash",
+        description: "Hashes deterministic byte buffers with cryptographic hash functions.",
+        workload: { name: "Message size", unit: "bytes" },
+        sizes: [64],
+        cases: [{ name: "BLAKE3-256", color: "#0f766e" }],
       },
     ],
-    samples: [
-      { caseId: "case-1", sampleIndex: 0, iterations: 10, elapsedNs: 100 },
-      { caseId: "case-1", sampleIndex: 1, iterations: 10, elapsedNs: 120 },
-      { caseId: "case-1", sampleIndex: 2, iterations: 10, elapsedNs: 110 },
+    measurements: [
+      {
+        group: "Cryptographic Hash",
+        case: "BLAKE3-256",
+        workloadSize: 64,
+        samples: [
+          { iterations: 10, elapsedNs: 100 },
+          { iterations: 10, elapsedNs: 120 },
+          { iterations: 10, elapsedNs: 110 },
+        ],
+      },
     ],
   });
   if (!result.ok) {
@@ -127,7 +155,7 @@ test("derives throughput summaries from raw samples", () => {
   }
 
   const summary = derived.summaries[0];
-  equal(summary.caseId, "case-1");
+  equal(summary.caseId, "Cryptographic Hash/BLAKE3-256/64");
   equal(summary.metric, "throughput");
   equal(summary.unit, "bytes/s");
   equal(
@@ -149,4 +177,11 @@ test("parses multi-machine upload tokens", () => {
   equal(tokens.length, 2);
   equal(tokens[0]?.clientId, "m3-max.access");
   equal(tokens[1]?.clientSecret, "secret-2");
+});
+
+test("compresses raw run JSON losslessly", async () => {
+  const raw = JSON.stringify(validRun);
+  const compressed = await compressRawRun(raw);
+  equal(compressed.originalBytes, new TextEncoder().encode(raw).byteLength);
+  equal(await decompressRawRun(compressed.bytes), raw);
 });

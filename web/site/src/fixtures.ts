@@ -11,15 +11,15 @@ type FixtureAlgorithm = {
 
 export function fixtureData(): ExplorerData {
   const runs: BenchmarkRun[] = [
-    fixtureRun("hash-m1-current", "Apple M1", "Apple M1", "macOS 15.5", "2026-05-19T11:24:00Z", ["hash"]),
-    fixtureRun("hash-zen-current", "Ryzen 9 9950X", "AMD Ryzen 9 9950X", "Linux 6.14", "2026-05-19T11:42:00Z", ["hash"]),
-    fixtureRun("hash-m3-current", "M3 Max", "Apple M3 Max", "macOS 15.5", "2026-05-19T12:05:00Z", ["hash"]),
-    fixtureRun("prng-m1-current", "Apple M1", "Apple M1", "macOS 15.5", "2026-05-19T12:24:00Z", ["prng"]),
-    fixtureRun("prng-m3-current", "M3 Max", "Apple M3 Max", "macOS 15.5", "2026-05-19T12:55:00Z", ["prng"]),
+    fixtureRun("hash-m1-current", "Apple M1", "Apple M1", "macOS 15.5", "2026-05-19T11:24:00Z", "Cryptographic Hash"),
+    fixtureRun("hash-zen-current", "AMD Ryzen 9 9950X", "AMD Ryzen 9 9950X", "Linux 6.14", "2026-05-19T11:42:00Z", "Cryptographic Hash"),
+    fixtureRun("hash-m3-current", "Apple M3 Max", "Apple M3 Max", "macOS 15.5", "2026-05-19T12:05:00Z", "Cryptographic Hash"),
+    fixtureRun("prng-m1-current", "Apple M1", "Apple M1", "macOS 15.5", "2026-05-19T12:24:00Z", "PRNG Bytes Generation"),
+    fixtureRun("prng-m3-current", "Apple M3 Max", "Apple M3 Max", "macOS 15.5", "2026-05-19T12:55:00Z", "PRNG Bytes Generation"),
   ];
   const results: BenchmarkResult[] = [
-    ...hashResults(runs.filter((run) => run.scopes?.includes("hash"))),
-    ...prngResults(runs.filter((run) => run.scopes?.includes("prng"))),
+    ...hashResults(runs.filter((run) => run.benchmarkName === "Cryptographic Hash")),
+    ...prngResults(runs.filter((run) => run.benchmarkName === "PRNG Bytes Generation")),
   ];
   return { runs, results, source: "fixture" };
 }
@@ -27,8 +27,8 @@ export function fixtureData(): ExplorerData {
 function hashResults(runs: BenchmarkRun[]): BenchmarkResult[] {
   return benchmarkResults({
     runs,
-    scope: "hash",
-    group: "cryptographic_hash",
+    benchmarkName: "Cryptographic Hash",
+    group: "Cryptographic Hash",
     inputUnit: "bytes",
     unit: "bytes/s",
     workloadDescription: "Hashes deterministic byte buffers with cryptographic hash functions.",
@@ -44,8 +44,8 @@ function hashResults(runs: BenchmarkRun[]): BenchmarkResult[] {
 function prngResults(runs: BenchmarkRun[]): BenchmarkResult[] {
   return benchmarkResults({
     runs,
-    scope: "prng",
-    group: "bytes_generation",
+    benchmarkName: "PRNG Bytes Generation",
+    group: "PRNG Bytes Generation",
     inputUnit: "bytes",
     unit: "bytes/s",
     workloadDescription: "Fills fixed-size byte buffers from each PRNG implementation.",
@@ -60,7 +60,7 @@ function prngResults(runs: BenchmarkRun[]): BenchmarkResult[] {
 
 function benchmarkResults({
   runs,
-  scope,
+  benchmarkName,
   group,
   inputUnit,
   unit,
@@ -68,7 +68,7 @@ function benchmarkResults({
   algorithms,
 }: {
   runs: BenchmarkRun[];
-  scope: string;
+  benchmarkName: string;
   group: string;
   inputUnit: string;
   unit: string;
@@ -94,10 +94,10 @@ function benchmarkResults({
         results.push({
           id: `${run.id}-${algorithm.name}-${size}`,
           runId: run.id,
-          scope,
+          benchmarkName,
           group,
           workloadDescription,
-          benchmark: `${formatInputSize(size)}`,
+          workload: `${formatInputSize(size)}`,
           algorithm: algorithm.name,
           algorithmColor: colorForAlgorithm(algorithm.name),
           metric: "throughput",
@@ -114,10 +114,6 @@ function benchmarkResults({
             p95NsPerIter: medianNsPerIter * (1 + algorithm.rsd * 1.75),
             p99NsPerIter: medianNsPerIter * (1 + algorithm.rsd * 2.45),
           },
-          anomaly:
-            elevatedRsd && run.host.label === "Apple M1"
-              ? { level: "warning", message: "Elevated RSD at large input sizes." }
-              : undefined,
         });
       }
     }
@@ -131,16 +127,13 @@ function fixtureRun(
   cpu: string,
   os: string,
   startedAt: string,
-  scopes: string[],
+  benchmarkName: string,
 ): BenchmarkRun {
   return {
     id,
     label,
     startedAt,
-    commit: "8fd3b1a",
-    branch: "main",
-    resultGroup: "nightly",
-    scopes,
+    benchmarkName,
     host: {
       id: slugify(label),
       label,

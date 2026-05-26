@@ -12,11 +12,8 @@ export type BenchRun = JsonObject & {
   readonly git: JsonObject;
   readonly host: JsonObject;
   readonly harness: JsonObject;
-  readonly scopes: readonly JsonObject[];
-  readonly cases: readonly JsonObject[];
-  readonly samples: readonly JsonObject[];
-  readonly checksums: JsonObject;
-  readonly warnings: readonly string[];
+  readonly groups: readonly JsonObject[];
+  readonly measurements: readonly JsonObject[];
 };
 
 export type ValidationIssue = {
@@ -35,11 +32,8 @@ const REQUIRED_FIELDS = [
   "git",
   "host",
   "harness",
-  "scopes",
-  "cases",
-  "samples",
-  "checksums",
-  "warnings",
+  "groups",
+  "measurements",
 ] as const;
 
 export function validateBenchRun(value: unknown): ValidationResult<BenchRun> {
@@ -57,6 +51,7 @@ export function validateBenchRun(value: unknown): ValidationResult<BenchRun> {
       issues.push({ path: `$.${field}`, message: "is required" });
     }
   }
+  allowOnlyKeys(value, "$", REQUIRED_FIELDS, issues);
 
   requireNonEmptyString(value, "schemaVersion", issues);
   requireNonEmptyString(value, "runId", issues);
@@ -64,11 +59,8 @@ export function validateBenchRun(value: unknown): ValidationResult<BenchRun> {
   requireObjectField(value, "git", issues);
   requireObjectField(value, "host", issues);
   requireObjectField(value, "harness", issues);
-  requireObjectArray(value, "scopes", issues);
-  requireObjectArray(value, "cases", issues);
-  requireObjectArray(value, "samples", issues);
-  requireObjectField(value, "checksums", issues);
-  requireStringArray(value, "warnings", issues);
+  requireObjectArray(value, "groups", issues);
+  requireObjectArray(value, "measurements", issues);
   validateRawRunFields(value, issues);
 
   if (issues.length > 0) {
@@ -85,11 +77,8 @@ export function validateBenchRun(value: unknown): ValidationResult<BenchRun> {
       git: value.git as JsonObject,
       host: value.host as JsonObject,
       harness: value.harness as JsonObject,
-      scopes: value.scopes as readonly JsonObject[],
-      cases: value.cases as readonly JsonObject[],
-      samples: value.samples as readonly JsonObject[],
-      checksums: value.checksums as JsonObject,
-      warnings: value.warnings as readonly string[],
+      groups: value.groups as readonly JsonObject[],
+      measurements: value.measurements as readonly JsonObject[],
     },
   };
 }
@@ -98,90 +87,221 @@ function validateRawRunFields(
   object: JsonObject,
   issues: ValidationIssue[],
 ): void {
-  if (object.schemaVersion !== "bench.run.v2") {
-    issues.push({ path: "$.schemaVersion", message: "expected bench.run.v2" });
+  if (object.schemaVersion !== "bench.run.v3") {
+    issues.push({ path: "$.schemaVersion", message: "expected bench.run.v3" });
   }
 
-  if (Array.isArray(object.scopes)) {
-    const scopeIds = new Set<string>();
-    object.scopes.forEach((scope, index) => {
-      if (!isObject(scope)) {
+  if (isObject(object.git)) {
+    allowOnlyKeys(object.git, "$.git", ["commit", "branch", "dirty"], issues);
+  }
+  if (isObject(object.host)) {
+    allowOnlyKeys(
+      object.host,
+      "$.host",
+      ["id", "os", "arch", "cpu", "kernel", "rustc", "llvm"],
+      issues,
+    );
+  }
+  if (isObject(object.harness)) {
+    allowOnlyKeys(
+      object.harness,
+      "$.harness",
+      [
+        "name",
+        "version",
+        "profile",
+        "sampleCount",
+        "warmupMs",
+        "calibrationMinMs",
+        "targetSampleMs",
+      ],
+      issues,
+    );
+  }
+
+  const groupDefinitions = new Map<string, { readonly sizes: Set<number>; readonly cases: Set<string> }>();
+  if (Array.isArray(object.groups)) {
+    if (object.groups.length !== 1) {
+      issues.push({ path: "$.groups", message: "expected exactly one group" });
+    }
+    object.groups.forEach((group, index) => {
+      if (!isObject(group)) {
         return;
       }
-      const id = stringField(scope, "id") ?? stringField(scope, "scopeId");
-      if (!id) {
-        issues.push({ path: `$.scopes[${index}].id`, message: "expected a non-empty string" });
-      } else if (scopeIds.has(id)) {
-        issues.push({ path: `$.scopes[${index}].id`, message: `duplicate scope id ${id}` });
+      allowOnlyKeys(
+        group,
+        `$.groups[${index}]`,
+        ["name", "description", "workload", "sizes", "cases"],
+        issues,
+      );
+      const name = stringField(group, "name");
+      if (!name) {
+        issues.push({ path: `$.groups[${index}].name`, message: "expected a non-empty string" });
+      } else if (groupDefinitions.has(name)) {
+        issues.push({ path: `$.groups[${index}].name`, message: `duplicate group ${name}` });
       } else {
-        scopeIds.add(id);
+        groupDefinitions.set(name, { sizes: new Set(), cases: new Set() });
       }
-    });
-  }
 
-  const caseIds = new Set<string>();
-  if (Array.isArray(object.cases)) {
-    object.cases.forEach((benchCase, index) => {
-      if (!isObject(benchCase)) {
-        return;
-      }
-      const id = stringField(benchCase, "id") ?? stringField(benchCase, "caseId");
-      if (!id) {
-        issues.push({ path: `$.cases[${index}].id`, message: "expected a non-empty string" });
-      } else if (caseIds.has(id)) {
-        issues.push({ path: `$.cases[${index}].id`, message: `duplicate case id ${id}` });
+      const workload = group.workload;
+      if (!isObject(workload)) {
+        issues.push({ path: `$.groups[${index}].workload`, message: "expected an object" });
       } else {
-        caseIds.add(id);
+        allowOnlyKeys(
+          workload,
+          `$.groups[${index}].workload`,
+          ["name", "unit"],
+          issues,
+        );
+        if (!stringField(workload, "name")) {
+          issues.push({ path: `$.groups[${index}].workload.name`, message: "expected a non-empty string" });
+        }
+        if (!stringField(workload, "unit")) {
+          issues.push({ path: `$.groups[${index}].workload.unit`, message: "expected a non-empty string" });
+        }
       }
-      if (!stringField(benchCase, "scopeId") && !stringField(benchCase, "scope")) {
-        issues.push({ path: `$.cases[${index}].scopeId`, message: "expected a non-empty string" });
+
+      const definition = name ? groupDefinitions.get(name) : undefined;
+      const sizes = group.sizes;
+      if (!Array.isArray(sizes)) {
+        issues.push({ path: `$.groups[${index}].sizes`, message: "expected an array" });
+      } else {
+        sizes.forEach((size, sizeIndex) => {
+          if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) {
+            issues.push({ path: `$.groups[${index}].sizes[${sizeIndex}]`, message: "expected a positive number" });
+          } else {
+            definition?.sizes.add(size);
+          }
+        });
       }
-      if (!stringField(benchCase, "group")) {
-        issues.push({ path: `$.cases[${index}].group`, message: "expected a non-empty string" });
-      }
-      if (!stringField(benchCase, "workloadDescription")) {
-        issues.push({ path: `$.cases[${index}].workloadDescription`, message: "expected a non-empty string" });
-      }
-      if (!stringField(benchCase, "algorithm")) {
-        issues.push({ path: `$.cases[${index}].algorithm`, message: "expected a non-empty string" });
-      }
-      const algorithmColor = stringField(benchCase, "algorithmColor");
-      if (!algorithmColor) {
-        issues.push({ path: `$.cases[${index}].algorithmColor`, message: "expected a non-empty string" });
-      } else if (!isHexColor(algorithmColor)) {
-        issues.push({ path: `$.cases[${index}].algorithmColor`, message: "expected a #rrggbb color" });
-      }
-      const input = benchCase.input;
-      if (!isObject(input)) {
-        issues.push({ path: `$.cases[${index}].input`, message: "expected an object" });
-        return;
-      }
-      requirePositiveNumber(input, "amount", `$.cases[${index}].input.amount`, issues);
-      if (!stringField(input, "unit")) {
-        issues.push({ path: `$.cases[${index}].input.unit`, message: "expected a non-empty string" });
+
+      const cases = group.cases;
+      if (!Array.isArray(cases)) {
+        issues.push({ path: `$.groups[${index}].cases`, message: "expected an array" });
+      } else {
+        cases.forEach((benchCase, caseIndex) => {
+          if (!isObject(benchCase)) {
+            issues.push({ path: `$.groups[${index}].cases[${caseIndex}]`, message: "expected an object" });
+            return;
+          }
+          allowOnlyKeys(
+            benchCase,
+            `$.groups[${index}].cases[${caseIndex}]`,
+            ["name", "color"],
+            issues,
+          );
+          const caseName = stringField(benchCase, "name");
+          if (!caseName) {
+            issues.push({ path: `$.groups[${index}].cases[${caseIndex}].name`, message: "expected a non-empty string" });
+          } else if (definition?.cases.has(caseName)) {
+            issues.push({ path: `$.groups[${index}].cases[${caseIndex}].name`, message: `duplicate case ${caseName}` });
+          } else {
+            definition?.cases.add(caseName);
+          }
+          const color = stringField(benchCase, "color");
+          if (!color) {
+            issues.push({ path: `$.groups[${index}].cases[${caseIndex}].color`, message: "expected a non-empty string" });
+          } else if (!isHexColor(color)) {
+            issues.push({ path: `$.groups[${index}].cases[${caseIndex}].color`, message: "expected a #rrggbb color" });
+          }
+        });
       }
     });
   }
 
-  if (Array.isArray(object.samples)) {
-    object.samples.forEach((sample, index) => {
-      if (!isObject(sample)) {
-        return;
-      }
-      const id = stringField(sample, "caseId") ?? stringField(sample, "case");
-      if (!id) {
-        issues.push({ path: `$.samples[${index}].caseId`, message: "expected a non-empty string" });
-      } else if (caseIds.size > 0 && !caseIds.has(id)) {
-        issues.push({ path: `$.samples[${index}].caseId`, message: `unknown case id ${id}` });
-      }
-      requirePositiveNumber(sample, "iterations", `$.samples[${index}].iterations`, issues);
-      requirePositiveNumber(sample, "elapsedNs", `$.samples[${index}].elapsedNs`, issues);
-    });
-  }
+  validateMeasurements(object, groupDefinitions, issues);
 }
 
 function isHexColor(value: string): boolean {
   return /^#[0-9a-f]{6}$/iu.test(value);
+}
+
+function validateMeasurements(
+  object: JsonObject,
+  groupDefinitions: ReadonlyMap<string, { readonly sizes: ReadonlySet<number>; readonly cases: ReadonlySet<string> }>,
+  issues: ValidationIssue[],
+): void {
+  if (!Array.isArray(object.measurements)) {
+    return;
+  }
+
+  const measurementKeys = new Set<string>();
+  object.measurements.forEach((measurement, index) => {
+    if (!isObject(measurement)) {
+      return;
+    }
+    allowOnlyKeys(
+      measurement,
+      `$.measurements[${index}]`,
+      ["group", "case", "workloadSize", "samples"],
+      issues,
+    );
+
+    const group = stringField(measurement, "group");
+    const benchCase = stringField(measurement, "case");
+    const workloadSize = numberField(measurement, "workloadSize");
+    if (!group) {
+      issues.push({ path: `$.measurements[${index}].group`, message: "expected a non-empty string" });
+    }
+    if (!benchCase) {
+      issues.push({ path: `$.measurements[${index}].case`, message: "expected a non-empty string" });
+    }
+    if (workloadSize === undefined || workloadSize <= 0) {
+      issues.push({ path: `$.measurements[${index}].workloadSize`, message: "expected a positive number" });
+    }
+
+    const definition = group ? groupDefinitions.get(group) : undefined;
+    if (group && groupDefinitions.size > 0 && !definition) {
+      issues.push({ path: `$.measurements[${index}].group`, message: `unknown group ${group}` });
+    }
+    if (definition && benchCase && !definition.cases.has(benchCase)) {
+      issues.push({ path: `$.measurements[${index}].case`, message: `unknown case ${benchCase}` });
+    }
+    if (definition && workloadSize !== undefined && !definition.sizes.has(workloadSize)) {
+      issues.push({ path: `$.measurements[${index}].workloadSize`, message: `unknown workload size ${workloadSize}` });
+    }
+    if (group && benchCase && workloadSize !== undefined) {
+      const key = `${group}\u0000${benchCase}\u0000${workloadSize}`;
+      if (measurementKeys.has(key)) {
+        issues.push({ path: `$.measurements[${index}]`, message: "duplicate measurement" });
+      }
+      measurementKeys.add(key);
+    }
+
+    const samples = measurement.samples;
+    if (!Array.isArray(samples)) {
+      issues.push({ path: `$.measurements[${index}].samples`, message: "expected an array" });
+      return;
+    }
+    samples.forEach((sample, sampleOffset) => {
+      if (!isObject(sample)) {
+        issues.push({ path: `$.measurements[${index}].samples[${sampleOffset}]`, message: "expected an object" });
+        return;
+      }
+      allowOnlyKeys(
+        sample,
+        `$.measurements[${index}].samples[${sampleOffset}]`,
+        ["iterations", "elapsedNs"],
+        issues,
+      );
+      requirePositiveNumber(sample, "iterations", `$.measurements[${index}].samples[${sampleOffset}].iterations`, issues);
+      requirePositiveNumber(sample, "elapsedNs", `$.measurements[${index}].samples[${sampleOffset}].elapsedNs`, issues);
+    });
+  });
+}
+
+function allowOnlyKeys(
+  object: JsonObject,
+  path: string,
+  allowed: readonly string[],
+  issues: ValidationIssue[],
+): void {
+  const allowedKeys = new Set<string>(allowed);
+  for (const key of Object.keys(object)) {
+    if (!allowedKeys.has(key)) {
+      issues.push({ path: `${path}.${key}`, message: "unknown field" });
+    }
+  }
 }
 
 export function parseBenchRunJson(text: string): ValidationResult<BenchRun> {
@@ -342,26 +462,4 @@ function requirePositiveNumber(
   if (value === undefined || value <= 0) {
     issues.push({ path, message: "expected a positive number" });
   }
-}
-
-function requireStringArray(
-  object: JsonObject,
-  field: string,
-  issues: ValidationIssue[],
-): void {
-  if (!(field in object)) {
-    return;
-  }
-
-  const value = object[field];
-  if (!Array.isArray(value)) {
-    issues.push({ path: `$.${field}`, message: "expected an array" });
-    return;
-  }
-
-  value.forEach((entry, index) => {
-    if (typeof entry !== "string") {
-      issues.push({ path: `$.${field}[${index}]`, message: "expected a string" });
-    }
-  });
 }

@@ -1,172 +1,122 @@
-use std::hint::black_box;
-
-use harness::{BenchmarkGroup, BenchmarkProfile, BenchmarkTarget, WorkloadSize};
-use rand::{RngCore, SeedableRng};
+use harness::BenchmarkCase;
+use rand::{Rng, SeedableRng};
 
 const PRNG_SEED: u64 = 42;
-const QUICK_BYTE_SIZES: &[u64] = &[16, 64, 256, 1024, 4096, 65_536];
-const PUBLISH_BYTE_SIZES: &[u64] = &[16, 64, 256, 1024, 4096, 16_384, 65_536, 1 << 20];
-const QUICK_U64_COUNTS: &[u64] = &[1, 64, 1024];
-const PUBLISH_U64_COUNTS: &[u64] = &[1, 4, 16, 64, 256, 1024, 4096, 16_384];
 
-pub fn benchmark(_profile: BenchmarkProfile) -> BenchmarkTarget {
-    BenchmarkTarget::new("PRNG")
-        .group(u64_generation_group())
-        .group(bytes_generation_group())
+pub struct U64Workload {
+    pub count: usize,
 }
 
-fn u64_generation_group() -> BenchmarkGroup {
-    let mut builder = BenchmarkGroup::new("u64 Generation")
-        .description("Generates fixed-size batches of u64 values from each PRNG implementation.")
-        .workload_axis("Batch length", "elements")
-        .quick_sizes(QUICK_U64_COUNTS.iter().copied())
-        .publish_sizes(PUBLISH_U64_COUNTS.iter().copied())
-        .prepare(|size: WorkloadSize| U64Workload {
-            count: size.amount() as usize,
-        });
-
-    for algorithm in PrngAlgorithm::ALL {
-        builder = builder.case(algorithm.name(), algorithm.color(), move |workload| {
-            let mut rng = RngImpl::new(algorithm, PRNG_SEED);
-            let mut acc = 0u64;
-            for _ in 0..workload.count {
-                acc ^= rng.next_u64();
-            }
-            black_box(acc as u128)
-        });
-    }
-
-    builder.build()
+pub struct BytesWorkload {
+    pub buf: Vec<u8>,
 }
 
-fn bytes_generation_group() -> BenchmarkGroup {
-    let mut builder = BenchmarkGroup::new("Bytes Generation")
-        .description("Fills fixed-size byte buffers from each PRNG implementation.")
-        .workload_axis("Buffer size", "bytes")
-        .quick_sizes(QUICK_BYTE_SIZES.iter().copied())
-        .publish_sizes(PUBLISH_BYTE_SIZES.iter().copied())
-        .prepare(|size: WorkloadSize| BytesWorkload {
-            buf: vec![0; size.amount() as usize],
-        });
-
-    for algorithm in PrngAlgorithm::ALL {
-        builder = builder.case(algorithm.name(), algorithm.color(), move |workload| {
-            let mut rng = RngImpl::new(algorithm, PRNG_SEED);
-            rng.fill_bytes(&mut workload.buf);
-            black_box(workload.buf.as_slice());
-            cheap_buffer_fingerprint(&workload.buf)
-        });
-    }
-
-    builder.build()
-}
-
-struct U64Workload {
+pub struct U64State<R> {
+    rng: R,
     count: usize,
 }
 
-struct BytesWorkload {
+pub struct BytesState<R> {
+    rng: R,
     buf: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum PrngAlgorithm {
-    Pcg64,
-    Pcg64Mcg,
-    Pcg64Dxsm,
-    Xoshiro256PlusPlus,
-    Xoshiro256StarStar,
+pub fn observe_buffer(bytes: &[u8]) -> u64 {
+    let first = bytes.first().copied().unwrap_or_default() as u64;
+    let middle = bytes.get(bytes.len() / 2).copied().unwrap_or_default() as u64;
+    let last = bytes.last().copied().unwrap_or_default() as u64;
+    first | (middle << 8) | (last << 16) | ((bytes.len() as u64) << 24)
 }
 
-impl PrngAlgorithm {
-    const ALL: [Self; 5] = [
-        Self::Pcg64,
-        Self::Pcg64Mcg,
-        Self::Pcg64Dxsm,
-        Self::Xoshiro256PlusPlus,
-        Self::Xoshiro256StarStar,
-    ];
+pub mod cases {
+    use super::*;
 
-    fn name(self) -> &'static str {
-        match self {
-            Self::Pcg64 => "PCG64",
-            Self::Pcg64Mcg => "PCG64-MCG",
-            Self::Pcg64Dxsm => "PCG64DXSM",
-            Self::Xoshiro256PlusPlus => "xoshiro256++",
-            Self::Xoshiro256StarStar => "xoshiro256**",
-        }
-    }
+    macro_rules! prng_case {
+        ($case:ident, $rng:ty, $name:literal, $color:literal) => {
+            pub struct $case;
 
-    fn color(self) -> &'static str {
-        match self {
-            Self::Pcg64 => "#1d4ed8",
-            Self::Pcg64Mcg => "#3b82f6",
-            Self::Pcg64Dxsm => "#60a5fa",
-            Self::Xoshiro256PlusPlus => "#be123c",
-            Self::Xoshiro256StarStar => "#f43f5e",
-        }
-    }
-}
+            impl BenchmarkCase<U64Workload> for $case {
+                type Output = u64;
+                type State = U64State<$rng>;
 
-fn cheap_buffer_fingerprint(bytes: &[u8]) -> u128 {
-    let first = bytes.first().copied().unwrap_or_default() as u128;
-    let middle = bytes.get(bytes.len() / 2).copied().unwrap_or_default() as u128;
-    let last = bytes.last().copied().unwrap_or_default() as u128;
-    first | (middle << 8) | (last << 16) | ((bytes.len() as u128) << 24)
-}
+                fn name(&self) -> &'static str {
+                    $name
+                }
 
-enum RngImpl {
-    Pcg64(rand_pcg::Pcg64),
-    Pcg64Mcg(rand_pcg::Pcg64Mcg),
-    Pcg64Dxsm(rand_pcg::Pcg64Dxsm),
-    Xoshiro256PlusPlus(rand_xoshiro::Xoshiro256PlusPlus),
-    Xoshiro256StarStar(rand_xoshiro::Xoshiro256StarStar),
-}
+                fn color(&self) -> &'static str {
+                    $color
+                }
 
-impl RngImpl {
-    fn new(algorithm: PrngAlgorithm, seed: u64) -> Self {
-        match algorithm {
-            PrngAlgorithm::Pcg64 => Self::Pcg64(rand_pcg::Pcg64::seed_from_u64(seed)),
-            PrngAlgorithm::Pcg64Mcg => Self::Pcg64Mcg(rand_pcg::Pcg64Mcg::seed_from_u64(seed)),
-            PrngAlgorithm::Pcg64Dxsm => Self::Pcg64Dxsm(rand_pcg::Pcg64Dxsm::seed_from_u64(seed)),
-            PrngAlgorithm::Xoshiro256PlusPlus => {
-                Self::Xoshiro256PlusPlus(rand_xoshiro::Xoshiro256PlusPlus::seed_from_u64(seed))
+                fn prepare(&self, workload: U64Workload) -> Self::State {
+                    U64State {
+                        rng: <$rng>::seed_from_u64(PRNG_SEED),
+                        count: workload.count,
+                    }
+                }
+
+                fn run_once(&self, state: &mut Self::State) -> Self::Output {
+                    run_u64_batch(&mut state.rng, state.count)
+                }
             }
-            PrngAlgorithm::Xoshiro256StarStar => {
-                Self::Xoshiro256StarStar(rand_xoshiro::Xoshiro256StarStar::seed_from_u64(seed))
+
+            impl BenchmarkCase<BytesWorkload> for $case {
+                type Output = u64;
+                type State = BytesState<$rng>;
+
+                fn name(&self) -> &'static str {
+                    $name
+                }
+
+                fn color(&self) -> &'static str {
+                    $color
+                }
+
+                fn prepare(&self, workload: BytesWorkload) -> Self::State {
+                    BytesState {
+                        rng: <$rng>::seed_from_u64(PRNG_SEED),
+                        buf: workload.buf,
+                    }
+                }
+
+                fn run_once(&self, state: &mut Self::State) -> Self::Output {
+                    fill_bytes(&mut state.rng, &mut state.buf)
+                }
             }
-        }
+        };
     }
+
+    prng_case!(Pcg64, rand_pcg::Pcg64, "PCG64", "#1d4ed8");
+    prng_case!(Pcg64Mcg, rand_pcg::Pcg64Mcg, "PCG64-MCG", "#3b82f6");
+    prng_case!(Pcg64Dxsm, rand_pcg::Pcg64Dxsm, "PCG64DXSM", "#60a5fa");
+    prng_case!(
+        Xoshiro256PlusPlus,
+        rand_xoshiro::Xoshiro256PlusPlus,
+        "xoshiro256++",
+        "#be123c"
+    );
+    prng_case!(
+        Xoshiro256StarStar,
+        rand_xoshiro::Xoshiro256StarStar,
+        "xoshiro256**",
+        "#f43f5e"
+    );
 }
 
-impl RngCore for RngImpl {
-    fn next_u32(&mut self) -> u32 {
-        match self {
-            Self::Pcg64(rng) => rng.next_u32(),
-            Self::Pcg64Mcg(rng) => rng.next_u32(),
-            Self::Pcg64Dxsm(rng) => rng.next_u32(),
-            Self::Xoshiro256PlusPlus(rng) => rng.next_u32(),
-            Self::Xoshiro256StarStar(rng) => rng.next_u32(),
-        }
+fn run_u64_batch<R>(rng: &mut R, count: usize) -> u64
+where
+    R: Rng,
+{
+    let mut acc = 0u64;
+    for _ in 0..count {
+        acc ^= rng.next_u64();
     }
+    acc
+}
 
-    fn next_u64(&mut self) -> u64 {
-        match self {
-            Self::Pcg64(rng) => rng.next_u64(),
-            Self::Pcg64Mcg(rng) => rng.next_u64(),
-            Self::Pcg64Dxsm(rng) => rng.next_u64(),
-            Self::Xoshiro256PlusPlus(rng) => rng.next_u64(),
-            Self::Xoshiro256StarStar(rng) => rng.next_u64(),
-        }
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        match self {
-            Self::Pcg64(rng) => rng.fill_bytes(dest),
-            Self::Pcg64Mcg(rng) => rng.fill_bytes(dest),
-            Self::Pcg64Dxsm(rng) => rng.fill_bytes(dest),
-            Self::Xoshiro256PlusPlus(rng) => rng.fill_bytes(dest),
-            Self::Xoshiro256StarStar(rng) => rng.fill_bytes(dest),
-        }
-    }
+fn fill_bytes<R>(rng: &mut R, buf: &mut [u8]) -> u64
+where
+    R: Rng,
+{
+    rng.fill_bytes(buf);
+    observe_buffer(buf)
 }

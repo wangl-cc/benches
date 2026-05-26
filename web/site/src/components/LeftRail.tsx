@@ -7,16 +7,16 @@ import { labelize } from "../utils";
 export function LeftRail({
   source,
   apiError,
-  scopes,
+  benchmarkNames,
   groups,
   algorithms,
   algorithmColors,
   selectedAlgorithms,
-  activeScope,
+  activeBenchmarkName,
   activeGroup,
   query,
   visibleCount,
-  onScopeChange,
+  onBenchmarkNameChange,
   onGroupChange,
   onAlgorithmToggle,
   onClearAlgorithms,
@@ -25,16 +25,16 @@ export function LeftRail({
 }: {
   source: ExplorerData["source"];
   apiError: string | null;
-  scopes: string[];
+  benchmarkNames: string[];
   groups: string[];
   algorithms: string[];
   algorithmColors: Map<string, string>;
   selectedAlgorithms: string[];
-  activeScope: string;
+  activeBenchmarkName: string;
   activeGroup: string;
   query: string;
   visibleCount: number;
-  onScopeChange: (scope: string) => void;
+  onBenchmarkNameChange: (benchmarkName: string) => void;
   onGroupChange: (group: string) => void;
   onAlgorithmToggle: (algorithm: string) => void;
   onClearAlgorithms: () => void;
@@ -53,8 +53,8 @@ export function LeftRail({
         </div>
       </div>
 
-      <RailSection title="Scope" icon={BarChart3}>
-        <OptionList values={scopes} activeValue={activeScope} onChange={onScopeChange} />
+      <RailSection title="Benchmark" icon={BarChart3}>
+        <OptionList values={benchmarkNames} activeValue={activeBenchmarkName} onChange={onBenchmarkNameChange} />
       </RailSection>
 
       <RailSection title="Group" icon={Cpu}>
@@ -76,7 +76,7 @@ export function LeftRail({
             </button>
           ))}
           <button type="button" className="rail-link" onClick={onClearAlgorithms}>
-            Reset algorithm selection
+            Select all algorithms
           </button>
         </div>
       </RailSection>

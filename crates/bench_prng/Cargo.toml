@@ -11,5 +11,9 @@ rand_pcg = { workspace = true }
 rand_xoshiro = { workspace = true }
 
 [[bench]]
-name = "prng"
+name = "u64_generation"
+harness = false
+
+[[bench]]
+name = "bytes_generation"
 harness = false

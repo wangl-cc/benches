@@ -8,22 +8,21 @@
     "node": ">=26 <27",
     "pnpm": ">=10 <12"
   },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  },
   "scripts": {
-    "bench:run": "node --experimental-strip-types scripts/bench-run.ts",
-    "bench:auth": "node --experimental-strip-types scripts/bench-auth.ts",
-    "bench:publish": "node --experimental-strip-types scripts/publish.ts",
-    "bench:run:publish": "node --experimental-strip-types scripts/bench-run-publish.ts",
-    "bench:seed": "node --experimental-strip-types scripts/seed-runs.ts",
-    "dev": "pnpm worker:dev",
-    "dev:8788": "pnpm --dir worker dev:8788",
-    "dev:site": "pnpm --dir site run dev",
-    "build": "pnpm --dir site run build",
-    "build:site": "pnpm --dir site run build:site",
-    "typecheck:api": "pnpm --dir worker exec tsc -p ../tsconfig.bench-api.json",
+    "bench": "node --experimental-strip-types scripts/bench-run.ts",
+    "publish": "node --experimental-strip-types scripts/bench-run-publish.ts",
+    "smoke": "node --experimental-strip-types scripts/smoke.ts",
+    "auth": "node --experimental-strip-types scripts/bench-auth.ts",
+    "seed": "node --experimental-strip-types scripts/seed-runs.ts",
+    "dev": "pnpm run migrate -- --local && pnpm --parallel --filter benchmark-explorer-site --filter benchmark-explorer-worker dev",
+    "build": "cd site && tsc --noEmit && vite build",
+    "migrate": "cd worker && wrangler d1 migrations apply BENCH_DB --config ../wrangler.jsonc",
+    "deploy": "node --experimental-strip-types scripts/deploy.ts",
+    "typecheck:api": "tsc -p tsconfig.bench-api.json",
     "test:api": "node --experimental-strip-types --test scripts/publish.test.ts",
-    "worker:dev": "pnpm --dir worker dev",
-    "worker:deploy": "pnpm --dir worker deploy:production",
-    "worker:migrate:local": "pnpm --dir worker migrate:local",
-    "worker:migrate": "pnpm --dir worker migrate:remote"
+    "verify": "node --experimental-strip-types scripts/verify.ts"
   }
 }

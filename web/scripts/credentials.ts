@@ -48,11 +48,6 @@ const kdfIterations = 210_000;
 export async function loadPublishCredentials(
   env: Record<string, string | undefined>,
 ): Promise<PublishCredentials> {
-  const envCredentials = credentialsFromEnv(env);
-  if (envCredentials) {
-    return envCredentials;
-  }
-
   const stored = await readCredentialFile();
   const passphrase = await readPassphrase(env, "Credential passphrase: ");
   const clientSecret = await decryptSecret(stored.secret, passphrase);
@@ -105,28 +100,11 @@ export async function clearPublishLogin(): Promise<void> {
   });
 }
 
-function credentialsFromEnv(
-  env: Record<string, string | undefined>,
-): PublishCredentials | undefined {
-  const apiUrl = env.BENCH_API_URL;
-  const clientId = env.CF_ACCESS_CLIENT_ID;
-  const clientSecret = env.CF_ACCESS_CLIENT_SECRET;
-  if (!apiUrl && !clientId && !clientSecret) {
-    return undefined;
-  }
-  if (!apiUrl || !clientId || !clientSecret) {
-    throw new Error(
-      "BENCH_API_URL, CF_ACCESS_CLIENT_ID, and CF_ACCESS_CLIENT_SECRET must be set together",
-    );
-  }
-  return { apiUrl, clientId, clientSecret };
-}
-
 async function readCredentialFile(): Promise<CredentialFile> {
   const file = await readCredentialFileOrUndefined();
   if (!file) {
     throw new Error(
-      "publish credentials are not configured; run `pnpm bench:auth import --access-client-id <id>`",
+      "publish credentials are not configured; run `pnpm auth import --access-client-id <id>`",
     );
   }
   return file;
@@ -168,11 +146,8 @@ async function writeCredentialFile(file: CredentialFile): Promise<void> {
 }
 
 async function readProjectConfig(
-  env: Record<string, string | undefined>,
+  _env: Record<string, string | undefined>,
 ): Promise<ProjectConfig> {
-  if (env.BENCH_API_URL) {
-    return { apiUrl: env.BENCH_API_URL };
-  }
   const configPath = fileURLToPath(new URL("../bench.config.json", import.meta.url));
   const value = JSON.parse(await readFile(configPath, "utf8")) as Partial<ProjectConfig>;
   if (!value.apiUrl) {
@@ -182,13 +157,8 @@ async function readProjectConfig(
 }
 
 async function readNewPassphrase(
-  env: Record<string, string | undefined>,
+  _env: Record<string, string | undefined>,
 ): Promise<string> {
-  const envPassphrase = env.BENCH_AUTH_PASSPHRASE;
-  if (envPassphrase) {
-    return envPassphrase;
-  }
-
   const passphrase = await promptHidden("Credential encryption passphrase: ");
   const confirmation = await promptHidden("Confirm credential encryption passphrase: ");
   if (passphrase !== confirmation) {
@@ -201,13 +171,9 @@ async function readNewPassphrase(
 }
 
 async function readPassphrase(
-  env: Record<string, string | undefined>,
+  _env: Record<string, string | undefined>,
   prompt: string,
 ): Promise<string> {
-  const envPassphrase = env.BENCH_AUTH_PASSPHRASE;
-  if (envPassphrase) {
-    return envPassphrase;
-  }
   return promptHidden(prompt);
 }
 

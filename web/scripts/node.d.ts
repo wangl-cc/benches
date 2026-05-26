@@ -6,6 +6,8 @@ declare const process: {
     readonly isTTY?: boolean;
     write(text: string): void;
   };
+  cwd(): string;
+  chdir(directory: string): void;
   exitCode?: number;
 };
 
@@ -26,6 +28,8 @@ declare module "node:child_process" {
     command: string,
     args: readonly string[],
     options?: {
+      readonly cwd?: string;
+      readonly env?: Record<string, string | undefined>;
       readonly stdio?: "inherit" | "pipe";
       readonly encoding?: "utf8";
       readonly timeout?: number;

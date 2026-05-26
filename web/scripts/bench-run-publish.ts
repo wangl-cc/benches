@@ -1,12 +1,12 @@
-import { defaultOutputFor, parseBenchArgs, runBench, scopesFor } from "./bench-run.ts";
+import { defaultOutputFor, parseBenchArgs, runBench, targetsFor } from "./bench-run.ts";
 import { main as publishMain } from "./publish.ts";
 
 async function main(argv: readonly string[]): Promise<void> {
   const parsed = parseBenchArgs(argv);
   runBench(argv);
 
-  for (const scope of scopesFor(parsed.scope)) {
-    const path = parsed.explicitOut ?? defaultOutputFor(scope);
+  for (const targetName of targetsFor(parsed.targetSet)) {
+    const path = parsed.explicitOut ?? defaultOutputFor(targetName);
     await publishMain(["node", "publish.ts", path]);
   }
 }

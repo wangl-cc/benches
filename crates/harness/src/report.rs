@@ -6,7 +6,7 @@ use crate::{
     HarnessError, Result, SCHEMA_VERSION,
     metadata::{GitInfo, HostInfo},
     profile::{BenchmarkProfile, RunProfile},
-    spec::{BenchmarkMetadata, GroupMetadata, MeasurementMetadata},
+    spec::GroupMetadata,
 };
 
 #[derive(Debug, Serialize)]
@@ -18,10 +18,8 @@ pub(crate) struct RunReport {
     git: GitInfo,
     host: HostInfo,
     harness: HarnessInfo,
-    benchmark: BenchmarkMetadata,
     groups: Vec<GroupMetadata>,
     measurements: Vec<MeasurementReport>,
-    warnings: Vec<String>,
 }
 
 impl RunReport {
@@ -33,10 +31,8 @@ impl RunReport {
             git: parts.git,
             host: parts.host,
             harness: HarnessInfo::from_profile(&parts.profile),
-            benchmark: parts.benchmark,
             groups: parts.groups,
             measurements: parts.measurements,
-            warnings: parts.warnings,
         }
     }
 }
@@ -47,10 +43,8 @@ pub(crate) struct RunReportParts {
     pub(crate) git: GitInfo,
     pub(crate) host: HostInfo,
     pub(crate) profile: RunProfile,
-    pub(crate) benchmark: BenchmarkMetadata,
     pub(crate) groups: Vec<GroupMetadata>,
     pub(crate) measurements: Vec<MeasurementReport>,
-    pub(crate) warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -58,13 +52,11 @@ pub(crate) struct RunReportParts {
 struct HarnessInfo {
     name: &'static str,
     version: &'static str,
-    quick: bool,
+    profile: &'static str,
     sample_count: usize,
     warmup_ms: u128,
     calibration_min_ms: u128,
     target_sample_ms: u128,
-    case_order: &'static str,
-    case_order_seed: String,
 }
 
 impl HarnessInfo {
@@ -72,13 +64,14 @@ impl HarnessInfo {
         Self {
             name: "harness",
             version: env!("CARGO_PKG_VERSION"),
-            quick: profile.profile == BenchmarkProfile::Quick,
+            profile: match profile.profile {
+                BenchmarkProfile::Quick => "quick",
+                BenchmarkProfile::Publish => "publish",
+            },
             sample_count: profile.sample_count,
             warmup_ms: profile.warmup.as_millis(),
             calibration_min_ms: profile.calibration_min.as_millis(),
             target_sample_ms: profile.target_sample.as_millis(),
-            case_order: "deterministic_shuffle",
-            case_order_seed: format!("{:016x}", profile.case_order_seed),
         }
     }
 }
@@ -86,18 +79,17 @@ impl HarnessInfo {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MeasurementReport {
-    pub(crate) metadata: MeasurementMetadata,
+    pub(crate) group: String,
+    pub(crate) case: String,
+    pub(crate) workload_size: u64,
     pub(crate) samples: Vec<RawSample>,
-    pub(crate) checksum: String,
 }
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RawSample {
-    pub(crate) sample_index: usize,
     pub(crate) iterations: u64,
     pub(crate) elapsed_ns: u128,
-    pub(crate) checksum: String,
 }
 
 pub(crate) fn write_report(path: &Path, report: &RunReport) -> Result<()> {
@@ -125,52 +117,78 @@ mod tests {
     use crate::{
         metadata::tests::{test_git, test_host},
         profile::BenchmarkProfile,
-        spec::{BenchmarkMetadata, GroupMetadata, tests::fixed_target},
-        util::checksum_hex,
+        spec::{GroupMetadata, tests::fixed_group},
     };
 
     #[test]
     fn report_serializes_schema_keys() {
-        let target = fixed_target();
+        let group = fixed_group();
         let profile = RunProfile::new(BenchmarkProfile::Quick);
+        let mut metadata = None;
+        group
+            .visit_points(profile.profile, &mut |point| {
+                metadata = Some(point.metadata());
+                Ok(())
+            })
+            .expect("metadata point");
         let report = RunReport::new(RunReportParts {
             run_id: "test-run".to_owned(),
             created_at: "1970-01-01T00:00:00Z".to_owned(),
             git: test_git(),
             host: test_host(),
             profile,
-            benchmark: BenchmarkMetadata::from(&target),
-            groups: target
-                .groups()
-                .iter()
-                .map(|group| GroupMetadata::from_group(group, profile.profile))
-                .collect(),
+            groups: vec![GroupMetadata::from_group(&group, profile.profile)],
             measurements: vec![MeasurementReport {
-                metadata: target.groups()[0].points_for(profile.profile)[0].metadata(2),
+                group: metadata.expect("metadata").group,
+                case: "algorithm".to_owned(),
+                workload_size: 1,
                 samples: vec![RawSample {
-                    sample_index: 0,
                     iterations: 2,
                     elapsed_ns: 100,
-                    checksum: checksum_hex(1),
                 }],
-                checksum: checksum_hex(1),
             }],
-            warnings: Vec::new(),
         });
         let value: Value = serde_json::to_value(report).expect("json");
         assert_eq!(value["schemaVersion"], SCHEMA_VERSION);
         assert_eq!(value["harness"]["name"], "harness");
+        assert_eq!(value["harness"]["profile"], "quick");
+        let mut top_level_keys = value
+            .as_object()
+            .expect("run report object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        top_level_keys.sort_unstable();
+        assert_eq!(top_level_keys, vec![
+            "createdAt",
+            "git",
+            "groups",
+            "harness",
+            "host",
+            "measurements",
+            "runId",
+            "schemaVersion",
+        ]);
         assert_eq!(value["runId"], "test-run");
         assert!(value.get("createdAt").is_some());
         assert!(value.get("git").is_some());
         assert!(value.get("host").is_some());
-        assert!(value.get("benchmark").is_some());
         assert!(value.get("groups").is_some());
         assert!(value.get("measurements").is_some());
-        assert!(value.get("scopes").is_none());
-        assert!(value.get("cases").is_none());
-        assert!(value.get("samples").is_none());
-        assert!(value.get("checksums").is_none());
-        assert!(value.get("warnings").is_some());
+        assert_eq!(value["groups"][0]["sizes"][0], 1);
+        assert_eq!(value["measurements"][0]["workloadSize"], 1);
+        let mut measurement_keys = value["measurements"][0]
+            .as_object()
+            .expect("measurement object")
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        measurement_keys.sort_unstable();
+        assert_eq!(measurement_keys, vec![
+            "case",
+            "group",
+            "samples",
+            "workloadSize"
+        ]);
     }
 }

@@ -3,7 +3,6 @@ import { hashRun, publishRun } from "./publish.ts";
 
 type SeedHost = {
   readonly id: string;
-  readonly label: string;
   readonly cpu: string;
   readonly os: string;
   readonly kernel: string;
@@ -11,10 +10,7 @@ type SeedHost = {
 };
 
 type SeedGroup = {
-  readonly scopeId: string;
-  readonly scopeTitle: string;
-  readonly group: string;
-  readonly title: string;
+  readonly groupName: string;
   readonly algorithms: readonly AlgorithmProfile[];
 };
 
@@ -30,7 +26,6 @@ const sizes = [16, 32, 64, 128, 256, 512, 1024, 4096, 65_536] as const;
 const hosts: readonly SeedHost[] = [
   {
     id: "apple-m1",
-    label: "Apple M1",
     cpu: "Apple M1",
     os: "macos",
     kernel: "Darwin 25.5.0",
@@ -38,7 +33,6 @@ const hosts: readonly SeedHost[] = [
   },
   {
     id: "ryzen-9-9950x",
-    label: "Ryzen 9 9950X",
     cpu: "AMD Ryzen 9 9950X",
     os: "linux",
     kernel: "Linux 6.14.4",
@@ -46,7 +40,6 @@ const hosts: readonly SeedHost[] = [
   },
   {
     id: "m3-max",
-    label: "M3 Max",
     cpu: "Apple M3 Max",
     os: "macos",
     kernel: "Darwin 25.5.0",
@@ -56,10 +49,7 @@ const hosts: readonly SeedHost[] = [
 
 const groups: readonly SeedGroup[] = [
   {
-    scopeId: "hash",
-    scopeTitle: "Hash",
-    group: "cryptographic_hash",
-    title: "Cryptographic Hash",
+    groupName: "Cryptographic Hash",
     algorithms: [
       { name: "BLAKE3-256", color: "#0f766e", factor: 1, rsd: 0.008 },
       { name: "BLAKE2B-512", color: "#14b8a6", factor: 0.42, rsd: 0.011 },
@@ -68,10 +58,7 @@ const groups: readonly SeedGroup[] = [
     ],
   },
   {
-    scopeId: "hash",
-    scopeTitle: "Hash",
-    group: "non_cryptographic_hash",
-    title: "Non-cryptographic Hash",
+    groupName: "Non-cryptographic Hash",
     algorithms: [
       { name: "XXH3-64", color: "#0891b2", factor: 1.55, rsd: 0.007 },
       { name: "AHash", color: "#db2777", factor: 1.4, rsd: 0.009 },
@@ -80,10 +67,7 @@ const groups: readonly SeedGroup[] = [
     ],
   },
   {
-    scopeId: "prng",
-    scopeTitle: "Prng",
-    group: "bytes_generation",
-    title: "Bytes Generation",
+    groupName: "PRNG Bytes Generation",
     algorithms: [
       { name: "Xoshiro256++", color: "#be123c", factor: 1.55, rsd: 0.009 },
       { name: "SmallRng", color: "#3b82f6", factor: 1.35, rsd: 0.01 },
@@ -92,10 +76,7 @@ const groups: readonly SeedGroup[] = [
     ],
   },
   {
-    scopeId: "prng",
-    scopeTitle: "Prng",
-    group: "u64_generation",
-    title: "u64 Generation",
+    groupName: "PRNG u64 Generation",
     algorithms: [
       { name: "Xoshiro256++", color: "#be123c", factor: 1.3, rsd: 0.008 },
       { name: "SmallRng", color: "#3b82f6", factor: 1.18, rsd: 0.01 },
@@ -106,8 +87,8 @@ const groups: readonly SeedGroup[] = [
 ];
 
 async function main(): Promise<void> {
-  const config = readSeedConfig(process.env);
-  const runs = hosts.map(buildRun);
+  const config = readSeedConfig();
+  const runs = hosts.flatMap((host) => groups.map((group) => buildRun(host, group)));
   for (const run of runs) {
     const contentHash = await hashRun(run);
     const response = await publishRun(config, run, contentHash);
@@ -118,44 +99,25 @@ async function main(): Promise<void> {
   }
 }
 
-function buildRun(host: SeedHost): BenchRun {
-  const cases = new Map<string, JsonObject>();
-  const samples: JsonObject[] = [];
-  const warnings: string[] = [];
+function buildRun(host: SeedHost, group: SeedGroup): BenchRun {
+  const measurements: JsonObject[] = [];
 
-  for (const group of groups) {
-    for (const algorithm of group.algorithms) {
-      for (const size of sizes) {
-        const caseId = `${group.scopeId}/${group.group}/${slugify(algorithm.name)}/${size}`;
-        const benchmark = formatInputSize(size);
-        const throughput = throughputValue(host, group, algorithm, size);
-        const relativeStdDev = relativeStdDevValue(host, algorithm, size);
-        const flags = stabilityFlags(relativeStdDev);
-        if (flags.length > 0) {
-          warnings.push(`${algorithm.name} ${benchmark}: ${flags.join(", ")}`);
-        }
-
-        cases.set(caseId, {
-          id: caseId,
-          scopeId: group.scopeId,
-          group: group.group,
-          name: benchmark,
-          title: `${algorithm.name} ${benchmark}`,
-          algorithm: algorithm.name,
-          algorithmColor: algorithm.color,
-          workloadDescription: workloadDescription(group.group),
-          input: { kind: "bytes", amount: size, unit: "bytes" },
-          seed: 0x4d53_4141_5f42_454e,
-        });
-
-        samples.push(...sampleRows(caseId, size, throughput, relativeStdDev));
-      }
+  for (const algorithm of group.algorithms) {
+    for (const size of sizes) {
+      const throughput = throughputValue(host, group, algorithm, size);
+      const relativeStdDev = relativeStdDevValue(host, algorithm, size);
+      measurements.push({
+        group: group.groupName,
+        case: algorithm.name,
+        workloadSize: size,
+        samples: sampleRows(size, throughput, relativeStdDev),
+      });
     }
   }
 
   return {
-    schemaVersion: "bench.run.v2",
-    runId: `seed-20260524-v2-tail-${host.id}`,
+    schemaVersion: "bench.run.v3",
+    runId: `seed-20260526-v4-host-label-${slugify(group.groupName)}-${host.id}`,
     createdAt: createdAtForHost(host),
     git: {
       commit: "seeded-fixture",
@@ -164,7 +126,6 @@ function buildRun(host: SeedHost): BenchRun {
     },
     host: {
       id: host.id,
-      label: host.label,
       cpu: host.cpu,
       os: host.os,
       kernel: host.kernel,
@@ -175,23 +136,27 @@ function buildRun(host: SeedHost): BenchRun {
     harness: {
       name: "harness",
       version: "seed-fixture-v1",
-      mode: "publish",
-      samples: 50,
-      warmup: "synthetic",
+      profile: "publish",
+      sampleCount: 50,
+      warmupMs: 0,
+      calibrationMinMs: 0,
+      targetSampleMs: 0,
     },
-    scopes: uniqueScopes(),
-    cases: [...cases.values()],
-    samples,
-    checksums: {
-      mode: "seeded",
-      deterministic: true,
-    },
-    warnings: unique(warnings),
+    groups: [{
+      name: group.groupName,
+      description: workloadDescription(group.groupName),
+      workload: workloadAxis(group.groupName),
+      sizes: [...sizes],
+      cases: group.algorithms.map((algorithm) => ({
+        name: algorithm.name,
+        color: algorithm.color,
+      })),
+    }],
+    measurements,
   };
 }
 
 function sampleRows(
-  caseId: string,
   inputAmount: number,
   throughput: number,
   relativeStdDev: number,
@@ -202,11 +167,8 @@ function sampleRows(
     const adjustedThroughput = throughput * (1 + wave);
     const elapsedNs = (inputAmount * iterations * 1_000_000_000) / adjustedThroughput;
     return {
-      caseId,
-      sampleIndex: index,
       iterations,
       elapsedNs,
-      checksum: "seeded",
     };
   });
 }
@@ -218,7 +180,7 @@ function throughputValue(
   size: number,
 ): number {
   const sizeProgress = Math.log2(size + 16) / Math.log2(65_536 + 16);
-  const groupFactor = group.group.includes("u64") ? 0.75 : group.group.includes("bytes") ? 0.95 : 1;
+  const groupFactor = group.groupName === "PRNG u64 Generation" ? 0.75 : group.groupName === "PRNG Bytes Generation" ? 0.95 : 1;
   const cacheKnee = size >= 4096 ? 0.92 : 1;
   return 120_000_000 * host.factor * algorithm.factor * groupFactor * cacheKnee * (1 + sizeProgress * 132);
 }
@@ -230,57 +192,27 @@ function relativeStdDevValue(host: SeedHost, algorithm: AlgorithmProfile, size: 
   return Number((algorithm.rsd + hostPenalty + algorithmPenalty).toFixed(4));
 }
 
-function stabilityFlags(relativeStdDev: number): readonly string[] {
-  if (relativeStdDev > 0.025) {
-    return ["high_rsd"];
-  }
-  if (relativeStdDev > 0.02) {
-    return ["moderate_rsd"];
-  }
-  return [];
-}
-
 function workloadDescription(group: string): string {
-  if (group === "cryptographic_hash") {
+  if (group === "Cryptographic Hash") {
     return "Hashes deterministic byte buffers with cryptographic hash functions.";
   }
-  if (group === "non_cryptographic_hash") {
+  if (group === "Non-cryptographic Hash") {
     return "Hashes deterministic byte buffers with non-cryptographic hash functions.";
   }
-  if (group === "u64_generation") {
+  if (group === "PRNG u64 Generation") {
     return "Generates fixed-size batches of u64 values from each PRNG implementation.";
   }
   return "Fills fixed-size byte buffers from each PRNG implementation.";
 }
 
-function uniqueScopes(): JsonObject[] {
-  return unique(groups.map((group) => group.scopeId)).map((scopeId) => {
-    const group = groups.find((entry) => entry.scopeId === scopeId);
-    return { id: scopeId, title: group?.scopeTitle ?? scopeId };
-  });
-}
-
-function readSeedConfig(env: Record<string, string | undefined>) {
-  const apiUrl = env.BENCH_API_URL ?? "http://127.0.0.1:8788";
-  const isLocal = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/u.test(apiUrl);
-  const clientId = env.CF_ACCESS_CLIENT_ID ?? (isLocal ? "local-bench-seed" : undefined);
-  const clientSecret = env.CF_ACCESS_CLIENT_SECRET ?? (isLocal ? "local-bench-secret" : undefined);
-  if (!clientId || !clientSecret) {
-    throw new Error("CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET are required outside local seed mode");
+function workloadAxis(groupName: string): { readonly name: string; readonly unit: string } {
+  if (groupName === "PRNG u64 Generation") {
+    return { name: "Batch length", unit: "elements" };
   }
-  return { apiUrl, clientId, clientSecret };
-}
-
-function createdAtForHost(host: SeedHost): string {
-  const offsetMinutes = hosts.findIndex((entry) => entry.id === host.id) * 11;
-  return new Date(Date.UTC(2026, 4, 23, 10, offsetMinutes, 0)).toISOString();
-}
-
-function formatInputSize(size: number): string {
-  if (size >= 1024) {
-    return `${size / 1024} KiB`;
+  if (groupName === "PRNG Bytes Generation") {
+    return { name: "Buffer size", unit: "bytes" };
   }
-  return `${size} B`;
+  return { name: "Message size", unit: "bytes" };
 }
 
 function slugify(value: string): string {
@@ -290,8 +222,17 @@ function slugify(value: string): string {
     .replace(/^-|-$/g, "");
 }
 
-function unique<T>(values: readonly T[]): T[] {
-  return [...new Set(values)];
+function readSeedConfig() {
+  return {
+    apiUrl: "http://localhost:8787",
+    clientId: "local-bench-seed",
+    clientSecret: "local-bench-secret",
+  };
+}
+
+function createdAtForHost(host: SeedHost): string {
+  const offsetMinutes = hosts.findIndex((entry) => entry.id === host.id) * 11;
+  return new Date(Date.UTC(2026, 4, 23, 10, offsetMinutes, 0)).toISOString();
 }
 
 if (process.argv[1]?.endsWith("/seed-runs.ts")) {

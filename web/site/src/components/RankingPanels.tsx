@@ -75,9 +75,9 @@ export function TailLatencyPanel({
 }) {
   const tailGroups = buildTailLatencyBands(rows, tailMetric, groupMode);
   const tailRows = tailGroups.flatMap((group) => group.rows);
-  const values = tailRows.flatMap((row) => [row.p50, row.p90, row.p95]).filter((value): value is number => value !== undefined);
-  const minValue = Math.min(...values, 0);
-  const maxValue = Math.max(...values, 1);
+  const values = tailRows.map((row) => row.value).filter((value) => Number.isFinite(value));
+  const minValue = values.length > 0 ? Math.min(...values) : 0;
+  const maxValue = values.length > 0 ? Math.max(...values) : 1;
   const valueRange = Math.max(maxValue - minValue, Number.EPSILON);
   const position = (value?: number) => {
     if (value === undefined) {
@@ -92,9 +92,9 @@ export function TailLatencyPanel({
         title="Tail Latency"
         icon={Activity}
         controls={
-          <ControlGroup label="Sort">
+          <ControlGroup label="Quantile">
             <SegmentedControl
-              values={["p50", "p90", "p95"]}
+              values={["p50", "p90", "p95", "p99"]}
               activeValue={tailMetric}
               onChange={(value) => onTailMetricChange(value as TailLatencyMetric)}
             />
@@ -127,18 +127,10 @@ export function TailLatencyPanel({
                   }
                 }}
               >
-                <i
-                  className="latency-range"
-                  style={{ left: position(row.p50), width: `calc(${position(row.p95)} - ${position(row.p50)})` }}
-                />
-                <i className="latency-marker p50" style={{ left: position(row.p50), background: row.color }}>
-                  <span className="sr-only">P50 {formatLatencyValue(row.p50 ?? 0)}</span>
-                </i>
-                <i className="latency-marker p90" style={{ left: position(row.p90), background: row.color }}>
-                  <span className="sr-only">P90 {formatLatencyValue(row.p90 ?? 0)}</span>
-                </i>
-                <i className="latency-marker p95" style={{ left: position(row.p95), background: row.color }}>
-                  <span className="sr-only">P95 {formatLatencyValue(row.p95 ?? 0)}</span>
+                <i className="latency-marker" style={{ left: position(row.value), background: row.color }}>
+                  <span className="sr-only">
+                    {tailMetric.toUpperCase()} {formatLatencyValue(row.value)}
+                  </span>
                 </i>
               </MetricRow>
             );
@@ -220,7 +212,6 @@ function StabilityRow({
       value={formatRsd(row.relativeStdDev)}
       variant="stability"
       dimmed={dimmed}
-      beforeTrack={<span className="stability-swatch" style={{ background: colorForRsd(row.relativeStdDev) }} />}
       screenReaderDetail={detail}
       onActivate={onActivate}
     >

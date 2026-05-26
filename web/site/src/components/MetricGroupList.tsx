@@ -16,9 +16,9 @@ export function MetricGroupList<Row>({
   renderRow: (row: Row) => ReactNode;
 }) {
   return (
-    <div className="metric-list" role="img" aria-label={ariaLabel}>
+    <div className="metric-list" role="list" aria-label={ariaLabel}>
       {groups.map((group) => (
-        <div className="metric-group" key={group.id}>
+        <div className="metric-group" key={group.id} role="group" aria-label={group.label}>
           <strong>{group.label}</strong>
           {group.rows.map(renderRow)}
         </div>
@@ -32,7 +32,6 @@ export function MetricRow({
   value,
   variant,
   dimmed,
-  beforeTrack,
   children,
   screenReaderDetail,
   onActivate,
@@ -41,7 +40,6 @@ export function MetricRow({
   value: ReactNode;
   variant: "bar" | "latency" | "stability";
   dimmed: boolean;
-  beforeTrack?: ReactNode;
   children: ReactNode;
   screenReaderDetail?: string;
   onActivate: () => void;
@@ -54,7 +52,6 @@ export function MetricRow({
   return (
     <button type="button" className={classes.join(" ")} onClick={onActivate}>
       <span className="metric-label">{label}</span>
-      {beforeTrack}
       <span className={`metric-track metric-track--${variant}`}>
         {children}
       </span>
