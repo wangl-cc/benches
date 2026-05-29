@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { runCommand } from "./command.ts";
+import { runCommand, stripLeadingSeparator } from "./command.ts";
 
 type VerifyMode = "rust" | "web" | "deploy";
 
@@ -22,7 +22,7 @@ function parseVerifyArgs(argv: readonly string[]): {
   const modes = new Set<VerifyMode>();
   let runQuickBench = false;
 
-  for (const arg of argv) {
+  for (const arg of stripLeadingSeparator(argv)) {
     if (arg === "--rust") {
       modes.add("rust");
       continue;

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { runCommand } from "./command.ts";
+import { runCommand, stripLeadingSeparator } from "./command.ts";
 
 type DeployArgs = {
   readonly preview: boolean;
@@ -27,7 +27,7 @@ function parseDeployArgs(argv: readonly string[]): DeployArgs {
   let preview = false;
   let dryRun = false;
 
-  for (const arg of argv) {
+  for (const arg of stripLeadingSeparator(argv)) {
     if (arg === "--preview") {
       preview = true;
       continue;

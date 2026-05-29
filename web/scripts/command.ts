@@ -23,3 +23,7 @@ export function runCommand(
     );
   }
 }
+
+export function stripLeadingSeparator(argv: readonly string[]): readonly string[] {
+  return argv[0] === "--" ? argv.slice(1) : argv;
+}
