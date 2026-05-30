@@ -55,14 +55,14 @@ pnpm install
 Authenticate Wrangler:
 
 ```bash
-pnpm exec wrangler login
-pnpm exec wrangler whoami
+pnpm --dir worker exec wrangler login
+pnpm --dir worker exec wrangler whoami
 ```
 
 Create the D1 database:
 
 ```bash
-pnpm exec wrangler d1 create benchmark-results
+pnpm --dir worker exec wrangler d1 create benchmark-results
 ```
 
 Copy the returned database id into top-level
@@ -130,7 +130,7 @@ as one JSON array:
 Save the same JSON array as a Worker secret:
 
 ```bash
-pnpm exec wrangler secret put CF_ACCESS_TOKENS
+pnpm --dir worker exec wrangler secret put CF_ACCESS_TOKENS
 ```
 
 To revoke one machine, delete that machine's Cloudflare Access service token,
