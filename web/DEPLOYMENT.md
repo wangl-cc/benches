@@ -38,6 +38,11 @@ The Worker name must match `name` in `wrangler.jsonc`:
 "name": "benchmark-explorer"
 ```
 
+`wrangler.jsonc` lives at the `web/` root. Wrangler itself is installed in the
+`worker` package, so direct Wrangler commands in this document use
+`pnpm --dir worker exec wrangler` and pass `--config ../wrangler.jsonc` when the
+command needs the Worker project configuration.
+
 If the Cloudflare UI exposes only one command field, use:
 
 ```bash
@@ -130,7 +135,7 @@ as one JSON array:
 Save the same JSON array as a Worker secret:
 
 ```bash
-pnpm --dir worker exec wrangler secret put CF_ACCESS_TOKENS
+pnpm --dir worker exec wrangler secret put CF_ACCESS_TOKENS --config ../wrangler.jsonc
 ```
 
 To revoke one machine, delete that machine's Cloudflare Access service token,
