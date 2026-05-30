@@ -1,4 +1,4 @@
-use std::{fs, path::Path};
+use std::{env, fs, path::Path};
 
 use serde::Serialize;
 
@@ -57,6 +57,7 @@ struct HarnessInfo {
     warmup_ms: u128,
     calibration_min_ms: u128,
     target_sample_ms: u128,
+    build: BuildInfo,
 }
 
 impl HarnessInfo {
@@ -72,8 +73,80 @@ impl HarnessInfo {
             warmup_ms: profile.warmup.as_millis(),
             calibration_min_ms: profile.calibration_min.as_millis(),
             target_sample_ms: profile.target_sample.as_millis(),
+            build: BuildInfo::detect(),
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct BuildInfo {
+    rustflags: Vec<String>,
+}
+
+impl BuildInfo {
+    fn detect() -> Self {
+        Self {
+            rustflags: configured_rustflags(),
+        }
+    }
+}
+
+fn configured_rustflags() -> Vec<String> {
+    if let Ok(encoded) = env::var("CARGO_ENCODED_RUSTFLAGS") {
+        let flags = encoded
+            .split('\u{1f}')
+            .filter(|flag| !flag.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if !flags.is_empty() {
+            return flags;
+        }
+    }
+
+    if let Ok(flags) = env::var("RUSTFLAGS") {
+        let flags = flags
+            .split_whitespace()
+            .filter(|flag| !flag.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        if !flags.is_empty() {
+            return flags;
+        }
+    }
+
+    cargo_config_rustflags()
+}
+
+fn cargo_config_rustflags() -> Vec<String> {
+    let Ok(config) = fs::read_to_string(crate::util::workspace_root().join(".cargo/config.toml"))
+    else {
+        return Vec::new();
+    };
+    parse_rustflags_array(&config).unwrap_or_default()
+}
+
+fn parse_rustflags_array(config: &str) -> Option<Vec<String>> {
+    let rustflags_offset = config.find("rustflags")?;
+    let after_rustflags = &config[rustflags_offset..];
+    let start = after_rustflags.find('[')? + 1;
+    let after_start = &after_rustflags[start..];
+    let end = after_start.find(']')?;
+    let array = &after_start[..end];
+    let mut flags = Vec::new();
+    let mut rest = array;
+    while let Some(start_quote) = rest.find('"') {
+        let after_quote = &rest[start_quote + 1..];
+        let Some(end_quote) = after_quote.find('"') else {
+            break;
+        };
+        let flag = &after_quote[..end_quote];
+        if !flag.is_empty() {
+            flags.push(flag.to_owned());
+        }
+        rest = &after_quote[end_quote + 1..];
+    }
+    Some(flags)
 }
 
 #[derive(Debug, Serialize)]
@@ -152,6 +225,13 @@ mod tests {
         assert_eq!(value["schemaVersion"], SCHEMA_VERSION);
         assert_eq!(value["harness"]["name"], "harness");
         assert_eq!(value["harness"]["profile"], "quick");
+        assert!(
+            value["harness"]["build"]["rustflags"]
+                .as_array()
+                .expect("rustflags array")
+                .iter()
+                .any(|flag| flag == "-Ctarget-cpu=native")
+        );
         let mut top_level_keys = value
             .as_object()
             .expect("run report object")

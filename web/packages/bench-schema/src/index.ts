@@ -124,6 +124,7 @@ function validateRawRunFields(
         "warmupMs",
         "calibrationMinMs",
         "targetSampleMs",
+        "build",
       ],
       issues,
     );
@@ -140,6 +141,12 @@ function validateRawRunFields(
     requireIntegerAt(object.harness, "warmupMs", "$.harness.warmupMs", 1, issues);
     requireIntegerAt(object.harness, "calibrationMinMs", "$.harness.calibrationMinMs", 1, issues);
     requireIntegerAt(object.harness, "targetSampleMs", "$.harness.targetSampleMs", 1, issues);
+    if (!isObject(object.harness.build)) {
+      issues.push({ path: "$.harness.build", message: "expected an object" });
+    } else {
+      allowOnlyKeys(object.harness.build, "$.harness.build", ["rustflags"], issues);
+      requireStringArrayAt(object.harness.build, "rustflags", "$.harness.build.rustflags", issues);
+    }
   }
 
   const groupDefinitions = new Map<string, { readonly sizes: Set<number>; readonly cases: Set<string> }>();
@@ -190,8 +197,8 @@ function validateRawRunFields(
         issues.push({ path: `$.groups[${index}].sizes`, message: "expected an array" });
       } else {
         sizes.forEach((size, sizeIndex) => {
-          if (typeof size !== "number" || !Number.isFinite(size) || size <= 0) {
-            issues.push({ path: `$.groups[${index}].sizes[${sizeIndex}]`, message: "expected a positive number" });
+          if (!isPositiveSafeInteger(size)) {
+            issues.push({ path: `$.groups[${index}].sizes[${sizeIndex}]`, message: "expected a positive safe integer" });
           } else {
             definition?.sizes.add(size);
           }
@@ -262,15 +269,15 @@ function validateMeasurements(
 
     const group = stringField(measurement, "group");
     const benchCase = stringField(measurement, "case");
-    const workloadSize = numberField(measurement, "workloadSize");
+    const workloadSize = positiveSafeIntegerField(measurement, "workloadSize");
     if (!group) {
       issues.push({ path: `$.measurements[${index}].group`, message: "expected a non-empty string" });
     }
     if (!benchCase) {
       issues.push({ path: `$.measurements[${index}].case`, message: "expected a non-empty string" });
     }
-    if (workloadSize === undefined || workloadSize <= 0) {
-      issues.push({ path: `$.measurements[${index}].workloadSize`, message: "expected a positive number" });
+    if (workloadSize === undefined) {
+      issues.push({ path: `$.measurements[${index}].workloadSize`, message: "expected a positive safe integer" });
     }
 
     const definition = group ? groupDefinitions.get(group) : undefined;
@@ -296,7 +303,7 @@ function validateMeasurements(
       issues.push({ path: `$.measurements[${index}].samples`, message: "expected an array" });
       return;
     }
-    const expectedSampleCount = isObject(object.harness) ? numberField(object.harness, "sampleCount") : undefined;
+    const expectedSampleCount = isObject(object.harness) ? positiveSafeIntegerField(object.harness, "sampleCount") : undefined;
     if (
       expectedSampleCount !== undefined &&
       Number.isInteger(expectedSampleCount) &&
@@ -318,10 +325,24 @@ function validateMeasurements(
         ["iterations", "elapsedNs"],
         issues,
       );
-      requirePositiveNumber(sample, "iterations", `$.measurements[${index}].samples[${sampleOffset}].iterations`, issues);
-      requirePositiveNumber(sample, "elapsedNs", `$.measurements[${index}].samples[${sampleOffset}].elapsedNs`, issues);
+      requirePositiveSafeInteger(sample, "iterations", `$.measurements[${index}].samples[${sampleOffset}].iterations`, issues);
+      requirePositiveSafeInteger(sample, "elapsedNs", `$.measurements[${index}].samples[${sampleOffset}].elapsedNs`, issues);
     });
   });
+
+  for (const [group, definition] of groupDefinitions) {
+    for (const benchCase of definition.cases) {
+      for (const size of definition.sizes) {
+        const key = `${group}\u0000${benchCase}\u0000${size}`;
+        if (!measurementKeys.has(key)) {
+          issues.push({
+            path: "$.measurements",
+            message: `missing measurement for ${group}/${benchCase}/${size}`,
+          });
+        }
+      }
+    }
+  }
 }
 
 function allowOnlyKeys(
@@ -493,15 +514,14 @@ function requireObjectArray(
   });
 }
 
-function requirePositiveNumber(
+function requirePositiveSafeInteger(
   object: JsonObject,
   field: string,
   path: string,
   issues: ValidationIssue[],
 ): void {
-  const value = numberField(object, field);
-  if (value === undefined || value <= 0) {
-    issues.push({ path, message: "expected a positive number" });
+  if (!isPositiveSafeInteger(object[field])) {
+    issues.push({ path, message: "expected a positive safe integer" });
   }
 }
 
@@ -528,6 +548,24 @@ function requireBooleanAt(
   }
 }
 
+function requireStringArrayAt(
+  object: JsonObject,
+  field: string,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  const value = object[field];
+  if (!Array.isArray(value)) {
+    issues.push({ path, message: "expected an array of strings" });
+    return;
+  }
+  value.forEach((entry, index) => {
+    if (typeof entry !== "string" || entry.length === 0) {
+      issues.push({ path: `${path}[${index}]`, message: "expected a non-empty string" });
+    }
+  });
+}
+
 function requireStringEnumAt(
   object: JsonObject,
   field: string,
@@ -549,7 +587,23 @@ function requireIntegerAt(
   issues: ValidationIssue[],
 ): void {
   const value = object[field];
-  if (typeof value !== "number" || !Number.isInteger(value) || value < min) {
-    issues.push({ path, message: `expected an integer >= ${min}` });
+  if (!isSafeIntegerAtLeast(value, min)) {
+    issues.push({ path, message: `expected a safe integer >= ${min}` });
   }
+}
+
+function positiveSafeIntegerField(
+  object: JsonObject,
+  field: string,
+): number | undefined {
+  const value = object[field];
+  return isPositiveSafeInteger(value) ? value : undefined;
+}
+
+function isPositiveSafeInteger(value: JsonValue | unknown): value is number {
+  return isSafeIntegerAtLeast(value, 1);
+}
+
+function isSafeIntegerAtLeast(value: JsonValue | unknown, min: number): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= min;
 }

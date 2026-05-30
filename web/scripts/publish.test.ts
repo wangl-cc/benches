@@ -36,6 +36,7 @@ const validRun = {
     warmupMs: 1,
     calibrationMinMs: 1,
     targetSampleMs: 1,
+    build: { rustflags: ["-Ctarget-cpu=native"] },
   },
   groups: [
     {
@@ -108,6 +109,44 @@ test("rejects measurements with unexpected sample count", () => {
     ],
   });
   equal(result.ok, false);
+});
+
+test("rejects incomplete case-size measurement matrix", () => {
+  const result = validateBenchRun({
+    ...validRun,
+    groups: [
+      {
+        ...validRun.groups[0],
+        sizes: [64, 128],
+      },
+    ],
+  });
+  equal(result.ok, false);
+  if (!result.ok) {
+    match(result.issues.map((issue) => issue.message).join("\n"), /missing measurement/);
+  }
+});
+
+test("rejects fractional and unsafe raw numeric fields", () => {
+  const fractional = validateBenchRun({
+    ...validRun,
+    measurements: [{ ...validRun.measurements[0], workloadSize: 64.5 }],
+  });
+  equal(fractional.ok, false);
+
+  const unsafe = validateBenchRun({
+    ...validRun,
+    measurements: [
+      {
+        ...validRun.measurements[0],
+        samples: validRun.measurements[0].samples.map((sample) => ({
+          ...sample,
+          elapsedNs: Number.MAX_SAFE_INTEGER + 1,
+        })),
+      },
+    ],
+  });
+  equal(unsafe.ok, false);
 });
 
 test("rejects duplicate case ids", () => {

@@ -1,3 +1,5 @@
+use std::hint::black_box;
+
 use harness::BenchmarkCase;
 use rand::{Rng, SeedableRng};
 
@@ -22,10 +24,8 @@ pub struct BytesState<R> {
 }
 
 pub fn observe_buffer(bytes: &[u8]) -> u64 {
-    let first = bytes.first().copied().unwrap_or_default() as u64;
-    let middle = bytes.get(bytes.len() / 2).copied().unwrap_or_default() as u64;
-    let last = bytes.last().copied().unwrap_or_default() as u64;
-    first | (middle << 8) | (last << 16) | ((bytes.len() as u64) << 24)
+    black_box(bytes);
+    bytes.len() as u64
 }
 
 pub mod cases {

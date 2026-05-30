@@ -141,6 +141,7 @@ function buildRun(host: SeedHost, group: SeedGroup): BenchRun {
       warmupMs: 1,
       calibrationMinMs: 1,
       targetSampleMs: 1,
+      build: { rustflags: ["-Ctarget-cpu=native"] },
     },
     groups: [{
       name: group.groupName,
