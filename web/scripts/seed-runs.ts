@@ -138,9 +138,9 @@ function buildRun(host: SeedHost, group: SeedGroup): BenchRun {
       version: "seed-fixture-v1",
       profile: "publish",
       sampleCount: 50,
-      warmupMs: 0,
-      calibrationMinMs: 0,
-      targetSampleMs: 0,
+      warmupMs: 1,
+      calibrationMinMs: 1,
+      targetSampleMs: 1,
     },
     groups: [{
       name: group.groupName,

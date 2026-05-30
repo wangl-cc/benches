@@ -8,15 +8,15 @@ export async function isAuthorized(request: Request, env: Env): Promise<boolean>
   }
   const clientId = request.headers.get("cf-access-client-id") ?? "";
   const clientSecret = request.headers.get("cf-access-client-secret") ?? "";
+  let authorized = false;
   for (const token of tokens) {
-    if (
-      (await timingSafeEqual(clientId, token.clientId)) &&
-      (await timingSafeEqual(clientSecret, token.clientSecret))
-    ) {
-      return true;
-    }
+    const [idMatches, secretMatches] = await Promise.all([
+      timingSafeEqual(clientId, token.clientId),
+      timingSafeEqual(clientSecret, token.clientSecret),
+    ]);
+    authorized = authorized || (idMatches && secretMatches);
   }
-  return false;
+  return authorized;
 }
 
 export function parseUploadTokens(

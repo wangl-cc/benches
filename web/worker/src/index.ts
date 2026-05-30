@@ -28,6 +28,8 @@ const MAX_D1_BLOB_BYTES = 1_800_000;
 const MAX_MEASUREMENTS_PER_RUN = 5_000;
 const MAX_SUMMARIES_PER_RUN = 5_000;
 const MAX_CASES_PER_RUN = 5_000;
+const MAX_SAMPLES_PER_MEASUREMENT = 500;
+const MAX_TOTAL_SAMPLES_PER_RUN = 250_000;
 
 export default {
   async fetch(request, env): Promise<Response> {
@@ -73,17 +75,15 @@ async function postRun(request: Request, env: Env): Promise<Response> {
     return contentLengthError;
   }
 
-  let body: string;
-  try {
-    body = await request.text();
-  } catch {
-    return json({ error: "invalid JSON" }, 422);
-  }
-  if (new TextEncoder().encode(body).byteLength > MAX_POST_BYTES) {
-    return json({ error: "request body is too large" }, 413);
+  const bodyResult = await readRequestBody(request, MAX_POST_BYTES);
+  if (!bodyResult.ok) {
+    return json(
+      { error: bodyResult.error },
+      bodyResult.error === "request body is too large" ? 413 : 422,
+    );
   }
 
-  const validation = parseBenchRunJson(body);
+  const validation = parseBenchRunJson(bodyResult.text);
   if (!validation.ok) {
     return json({ error: "invalid schema", issues: validation.issues }, 422);
   }
@@ -94,14 +94,24 @@ async function postRun(request: Request, env: Env): Promise<Response> {
     return json({ error: "ingest policy rejected run", issues: policyIssues }, 422);
   }
 
+  const admissionIssues = validateIngestLimits(run);
+  if (admissionIssues.length > 0) {
+    return json({ error: "run exceeds ingest limits", issues: admissionIssues }, 422);
+  }
+
   const derived = deriveSummaries(run);
   if (!derived.ok) {
     return json({ error: "invalid measurements", issues: derived.issues }, 422);
   }
 
-  const admissionIssues = validateIngestLimits(run, derived.summaries);
-  if (admissionIssues.length > 0) {
-    return json({ error: "run exceeds ingest limits", issues: admissionIssues }, 422);
+  if (derived.summaries.length > MAX_SUMMARIES_PER_RUN) {
+    return json(
+      {
+        error: "run exceeds ingest limits",
+        issues: [`summaries exceed limit ${MAX_SUMMARIES_PER_RUN}`],
+      },
+      422,
+    );
   }
 
   const contentHash = await hashRun(run);
@@ -121,7 +131,7 @@ async function postRun(request: Request, env: Env): Promise<Response> {
     return json(runMetadata(existing, true), 200);
   }
 
-  const rawRun = await compressRawRun(body);
+  const rawRun = await compressRawRun(bodyResult.text);
   if (rawRun.compressedBytes > MAX_D1_BLOB_BYTES) {
     return json(
       {
@@ -151,6 +161,38 @@ async function postRun(request: Request, env: Env): Promise<Response> {
     throw new Error("inserted run could not be loaded");
   }
   return json(runMetadata(inserted, false), 201);
+}
+
+async function readRequestBody(
+  request: Request,
+  maxBytes: number,
+): Promise<
+  | { readonly ok: true; readonly text: string }
+  | { readonly ok: false; readonly error: string }
+> {
+  if (!request.body) {
+    return { ok: false, error: "request body is required" };
+  }
+
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  const parts: string[] = [];
+  let bytes = 0;
+
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      await reader.cancel();
+      return { ok: false, error: "request body is too large" };
+    }
+    parts.push(decoder.decode(value, { stream: true }));
+  }
+  parts.push(decoder.decode());
+  return { ok: true, text: parts.join("") };
 }
 
 function validateContentLength(request: Request): Response | null {
@@ -188,17 +230,24 @@ export function validateIngestPolicy(
 
 export function validateIngestLimits(
   run: BenchRun,
-  summaries: readonly JsonObject[],
 ): string[] {
   const issues: string[] = [];
   if (run.measurements.length > MAX_MEASUREMENTS_PER_RUN) {
     issues.push(`measurements exceed limit ${MAX_MEASUREMENTS_PER_RUN}`);
   }
-  if (summaries.length > MAX_SUMMARIES_PER_RUN) {
-    issues.push(`summaries exceed limit ${MAX_SUMMARIES_PER_RUN}`);
-  }
   if (rawCaseCount(run) > MAX_CASES_PER_RUN) {
     issues.push(`cases exceed limit ${MAX_CASES_PER_RUN}`);
+  }
+  let totalSamples = 0;
+  for (const [index, measurement] of run.measurements.entries()) {
+    const samples = Array.isArray(measurement.samples) ? measurement.samples.length : 0;
+    totalSamples += samples;
+    if (samples > MAX_SAMPLES_PER_MEASUREMENT) {
+      issues.push(`measurements[${index}] samples exceed limit ${MAX_SAMPLES_PER_MEASUREMENT}`);
+    }
+  }
+  if (totalSamples > MAX_TOTAL_SAMPLES_PER_RUN) {
+    issues.push(`samples exceed limit ${MAX_TOTAL_SAMPLES_PER_RUN}`);
   }
   return issues;
 }
@@ -232,6 +281,11 @@ async function getRun(env: Env, runId: string): Promise<Response> {
     return json({ error: "unsupported raw run encoding" }, 500);
   }
 
+  const rawText = await decompressRawRun(rawRun.raw_json_gzip);
+  if (validateStoredRawRunText(rawText).length > 0) {
+    return json({ error: "stored raw run failed schema validation" }, 500);
+  }
+
   const headers = new Headers();
   headers.set("etag", `"${row.content_hash}"`);
   headers.set("content-type", "application/json");
@@ -239,7 +293,12 @@ async function getRun(env: Env, runId: string): Promise<Response> {
   for (const [key, value] of Object.entries(corsHeaders())) {
     headers.set(key, value);
   }
-  return new Response(await decompressRawRun(rawRun.raw_json_gzip), { headers });
+  return new Response(rawText, { headers });
+}
+
+export function validateStoredRawRunText(rawText: string) {
+  const validation = parseBenchRunJson(rawText);
+  return validation.ok ? [] : validation.issues;
 }
 
 async function getResults(env: Env, url: URL): Promise<Response> {

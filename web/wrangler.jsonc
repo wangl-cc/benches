@@ -22,19 +22,4 @@
       "migrations_dir": "worker/migrations",
     },
   ],
-  "env": {
-    "preview": {
-      "secrets": {
-        "required": ["CF_ACCESS_TOKENS"],
-      },
-      "d1_databases": [
-        {
-          "binding": "BENCH_DB",
-          "database_name": "benchmark-results",
-          "database_id": "f5d7f7cf-5706-43c2-ae75-5f55966b4dc9",
-          "migrations_dir": "worker/migrations",
-        },
-      ],
-    },
-  },
 }

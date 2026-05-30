@@ -68,6 +68,7 @@ export function LeftRail({
               key={algorithm}
               type="button"
               className={selectedAlgorithms.includes(algorithm) ? "check-row active" : "check-row"}
+              aria-pressed={selectedAlgorithms.includes(algorithm)}
               onClick={() => onAlgorithmToggle(algorithm)}
             >
               <span className="check-box">{selectedAlgorithms.includes(algorithm) ? "✓" : ""}</span>
@@ -132,12 +133,14 @@ function OptionList({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="rail-options">
+    <div className="rail-options" role="radiogroup">
       {values.map((value) => (
         <button
           key={value}
           type="button"
           className={value === activeValue ? "rail-option active" : "rail-option"}
+          role="radio"
+          aria-checked={value === activeValue}
           onClick={() => onChange(value)}
         >
           <span>{labelize(value)}</span>

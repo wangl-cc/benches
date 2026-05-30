@@ -2,22 +2,41 @@ import { equal, match } from "node:assert/strict";
 import { test } from "node:test";
 
 import { validateBenchRun } from "../packages/bench-schema/src/index.ts";
+import { parseBenchArgs, targetsFor } from "./bench-run.ts";
 import { hashRun } from "./publish.ts";
 import {
   compressRawRun,
   decompressRawRun,
   deriveSummaries,
   parseUploadTokens,
+  validateIngestLimits,
   validateIngestPolicy,
+  validateStoredRawRunText,
 } from "../worker/src/index.ts";
 
 const validRun = {
   schemaVersion: "bench.run.v3",
   runId: "run-1",
   createdAt: "2026-05-21T00:00:00Z",
-  git: { commit: "abc123" },
-  host: { id: "host-1" },
-  harness: { name: "harness", profile: "publish" },
+  git: { commit: "abc123", branch: "main", dirty: false },
+  host: {
+    id: "host-1",
+    os: "macos",
+    arch: "aarch64",
+    cpu: "Apple M3 Max",
+    kernel: "Darwin 25.5.0",
+    rustc: "rustc 1.95.0",
+    llvm: "21.0",
+  },
+  harness: {
+    name: "harness",
+    version: "0.1.0",
+    profile: "publish",
+    sampleCount: 3,
+    warmupMs: 1,
+    calibrationMinMs: 1,
+    targetSampleMs: 1,
+  },
   groups: [
     {
       name: "Cryptographic Hash",
@@ -32,7 +51,11 @@ const validRun = {
       group: "Cryptographic Hash",
       case: "BLAKE3-256",
       workloadSize: 64,
-      samples: [{ iterations: 10, elapsedNs: 100 }],
+      samples: [
+        { iterations: 10, elapsedNs: 100 },
+        { iterations: 10, elapsedNs: 110 },
+        { iterations: 10, elapsedNs: 120 },
+      ],
     },
   ],
 };
@@ -66,6 +89,27 @@ test("rejects measurements for unknown cases", () => {
   equal(result.ok, false);
 });
 
+test("rejects missing harness profile", () => {
+  const result = validateBenchRun({
+    ...validRun,
+    harness: { ...validRun.harness, profile: undefined },
+  });
+  equal(result.ok, false);
+});
+
+test("rejects measurements with unexpected sample count", () => {
+  const result = validateBenchRun({
+    ...validRun,
+    measurements: [
+      {
+        ...validRun.measurements[0],
+        samples: [{ iterations: 10, elapsedNs: 100 }],
+      },
+    ],
+  });
+  equal(result.ok, false);
+});
+
 test("rejects duplicate case ids", () => {
   const result = validateBenchRun({
     ...validRun,
@@ -95,7 +139,7 @@ test("hashes canonical run JSON", async () => {
 test("production ingest policy rejects quick runs", () => {
   const result = validateBenchRun({
     ...validRun,
-    harness: { name: "harness", profile: "quick" },
+    harness: { ...validRun.harness, profile: "quick" },
   });
   if (!result.ok) {
     throw new Error("fixture should be valid");
@@ -109,7 +153,7 @@ test("production ingest policy rejects quick runs", () => {
 test("test ingest policy accepts quick runs", () => {
   const result = validateBenchRun({
     ...validRun,
-    harness: { name: "harness", profile: "quick" },
+    harness: { ...validRun.harness, profile: "quick" },
   });
   if (!result.ok) {
     throw new Error("fixture should be valid");
@@ -117,6 +161,22 @@ test("test ingest policy accepts quick runs", () => {
 
   const issues = validateIngestPolicy(result.value, { allowQuickRuns: true });
   equal(issues.length, 0);
+});
+
+test("preflight limits reject too many samples before summary derivation", () => {
+  const samples = Array.from({ length: 501 }, () => ({ iterations: 10, elapsedNs: 100 }));
+  const result = validateBenchRun({
+    ...validRun,
+    harness: { ...validRun.harness, sampleCount: samples.length },
+    measurements: [{ ...validRun.measurements[0], samples }],
+  });
+  if (!result.ok) {
+    throw new Error("fixture should be valid before ingest limit checks");
+  }
+
+  const issues = validateIngestLimits(result.value);
+  equal(issues.length, 1);
+  match(issues[0], /samples exceed limit/);
 });
 
 test("derives throughput summaries from raw samples", () => {
@@ -184,4 +244,15 @@ test("compresses raw run JSON losslessly", async () => {
   const compressed = await compressRawRun(raw);
   equal(compressed.originalBytes, new TextEncoder().encode(raw).byteLength);
   equal(await decompressRawRun(compressed.bytes), raw);
+});
+
+test("stored raw run validation rejects corrupted public JSON", () => {
+  const issues = validateStoredRawRunText(JSON.stringify({ ...validRun, harness: {} }));
+  equal(issues.length > 0, true);
+});
+
+test("bench runner supports individual targets with explicit output", () => {
+  const parsed = parseBenchArgs(["--target", "cryptographic_hash", "--out", "target/run.json"]);
+  equal(targetsFor(parsed.targetSet).length, 1);
+  equal(parsed.explicitOut?.endsWith("target/run.json"), true);
 });

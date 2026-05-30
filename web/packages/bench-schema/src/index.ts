@@ -93,6 +93,9 @@ function validateRawRunFields(
 
   if (isObject(object.git)) {
     allowOnlyKeys(object.git, "$.git", ["commit", "branch", "dirty"], issues);
+    requireNonEmptyStringAt(object.git, "commit", "$.git.commit", issues);
+    requireNonEmptyStringAt(object.git, "branch", "$.git.branch", issues);
+    requireBooleanAt(object.git, "dirty", "$.git.dirty", issues);
   }
   if (isObject(object.host)) {
     allowOnlyKeys(
@@ -101,6 +104,13 @@ function validateRawRunFields(
       ["id", "os", "arch", "cpu", "kernel", "rustc", "llvm"],
       issues,
     );
+    requireNonEmptyStringAt(object.host, "id", "$.host.id", issues);
+    requireNonEmptyStringAt(object.host, "os", "$.host.os", issues);
+    requireNonEmptyStringAt(object.host, "arch", "$.host.arch", issues);
+    requireNonEmptyStringAt(object.host, "cpu", "$.host.cpu", issues);
+    requireNonEmptyStringAt(object.host, "kernel", "$.host.kernel", issues);
+    requireNonEmptyStringAt(object.host, "rustc", "$.host.rustc", issues);
+    requireNonEmptyStringAt(object.host, "llvm", "$.host.llvm", issues);
   }
   if (isObject(object.harness)) {
     allowOnlyKeys(
@@ -117,6 +127,19 @@ function validateRawRunFields(
       ],
       issues,
     );
+    requireNonEmptyStringAt(object.harness, "name", "$.harness.name", issues);
+    requireNonEmptyStringAt(object.harness, "version", "$.harness.version", issues);
+    requireStringEnumAt(
+      object.harness,
+      "profile",
+      "$.harness.profile",
+      ["quick", "publish"],
+      issues,
+    );
+    requireIntegerAt(object.harness, "sampleCount", "$.harness.sampleCount", 3, issues);
+    requireIntegerAt(object.harness, "warmupMs", "$.harness.warmupMs", 1, issues);
+    requireIntegerAt(object.harness, "calibrationMinMs", "$.harness.calibrationMinMs", 1, issues);
+    requireIntegerAt(object.harness, "targetSampleMs", "$.harness.targetSampleMs", 1, issues);
   }
 
   const groupDefinitions = new Map<string, { readonly sizes: Set<number>; readonly cases: Set<string> }>();
@@ -273,6 +296,17 @@ function validateMeasurements(
       issues.push({ path: `$.measurements[${index}].samples`, message: "expected an array" });
       return;
     }
+    const expectedSampleCount = isObject(object.harness) ? numberField(object.harness, "sampleCount") : undefined;
+    if (
+      expectedSampleCount !== undefined &&
+      Number.isInteger(expectedSampleCount) &&
+      samples.length !== expectedSampleCount
+    ) {
+      issues.push({
+        path: `$.measurements[${index}].samples`,
+        message: `expected ${expectedSampleCount} samples`,
+      });
+    }
     samples.forEach((sample, sampleOffset) => {
       if (!isObject(sample)) {
         issues.push({ path: `$.measurements[${index}].samples[${sampleOffset}]`, message: "expected an object" });
@@ -411,10 +445,17 @@ function requireIsoDateTime(
   if (
     typeof value !== "string" ||
     value.length === 0 ||
-    Number.isNaN(Date.parse(value))
+    !isStrictIsoDateTime(value)
   ) {
     issues.push({ path: `$.${field}`, message: "expected an ISO date-time string" });
   }
+}
+
+function isStrictIsoDateTime(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/u.test(value)) {
+    return false;
+  }
+  return !Number.isNaN(Date.parse(value));
 }
 
 function requireObjectField(
@@ -461,5 +502,54 @@ function requirePositiveNumber(
   const value = numberField(object, field);
   if (value === undefined || value <= 0) {
     issues.push({ path, message: "expected a positive number" });
+  }
+}
+
+function requireNonEmptyStringAt(
+  object: JsonObject,
+  field: string,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  const value = object[field];
+  if (typeof value !== "string" || value.length === 0) {
+    issues.push({ path, message: "expected a non-empty string" });
+  }
+}
+
+function requireBooleanAt(
+  object: JsonObject,
+  field: string,
+  path: string,
+  issues: ValidationIssue[],
+): void {
+  if (typeof object[field] !== "boolean") {
+    issues.push({ path, message: "expected a boolean" });
+  }
+}
+
+function requireStringEnumAt(
+  object: JsonObject,
+  field: string,
+  path: string,
+  values: readonly string[],
+  issues: ValidationIssue[],
+): void {
+  const value = object[field];
+  if (typeof value !== "string" || !values.includes(value)) {
+    issues.push({ path, message: `expected one of ${values.join(", ")}` });
+  }
+}
+
+function requireIntegerAt(
+  object: JsonObject,
+  field: string,
+  path: string,
+  min: number,
+  issues: ValidationIssue[],
+): void {
+  const value = object[field];
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min) {
+    issues.push({ path, message: `expected an integer >= ${min}` });
   }
 }

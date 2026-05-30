@@ -12,11 +12,11 @@ use crate::{
 #[derive(Debug, Clone, Args)]
 pub struct CaptureArgs {
     /// Measurement profile to use.
-    #[arg(long, value_enum, default_value_t = CliProfile::Publish)]
-    profile: CliProfile,
+    #[arg(long, value_enum)]
+    profile: Option<CliProfile>,
 
     /// Alias for --profile quick.
-    #[arg(long)]
+    #[arg(long, conflicts_with = "profile")]
     quick: bool,
 
     /// Override the number of samples collected per measurement.
@@ -45,7 +45,7 @@ impl CaptureArgs {
         let profile = if self.quick {
             BenchmarkProfile::Quick
         } else {
-            self.profile.into()
+            self.profile.unwrap_or(CliProfile::Publish).into()
         };
         let overrides = ProfileOverrides {
             sample_count: self.samples,

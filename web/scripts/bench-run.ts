@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-export type BenchTargetSet = "hash" | "prng" | "all";
+export type BenchTargetSet = "hash" | "prng" | "all" | BenchTargetName;
 
 type ParsedBenchArgs = {
   readonly targetSet: BenchTargetSet;
@@ -56,7 +57,7 @@ export function parseBenchArgs(argv: readonly string[]): ParsedBenchArgs {
     if (arg === "--target") {
       const value = args[index + 1];
       if (!isBenchTargetSet(value)) {
-        throw new Error("--target must be hash, prng, or all");
+        throw new Error("--target must be all, hash, prng, or a bench target name");
       }
       targetSet = value;
       index += 1;
@@ -65,23 +66,24 @@ export function parseBenchArgs(argv: readonly string[]): ParsedBenchArgs {
     if (arg.startsWith("--target=")) {
       const value = arg.slice("--target=".length);
       if (!isBenchTargetSet(value)) {
-        throw new Error("--target must be hash, prng, or all");
+        throw new Error("--target must be all, hash, prng, or a bench target name");
       }
       targetSet = value;
       continue;
     }
     if (arg === "--out") {
-      explicitOut = args[index + 1];
+      const value = args[index + 1];
       cargoArgs.push(arg);
-      if (explicitOut !== undefined) {
+      if (value !== undefined) {
+        explicitOut = resolve(value);
         cargoArgs.push(explicitOut);
         index += 1;
       }
       continue;
     }
     if (arg.startsWith("--out=")) {
-      explicitOut = arg.slice("--out=".length);
-      cargoArgs.push(arg);
+      explicitOut = resolve(arg.slice("--out=".length));
+      cargoArgs.push(`--out=${explicitOut}`);
       continue;
     }
     cargoArgs.push(arg);
@@ -108,7 +110,10 @@ export function targetsFor(targetSet: BenchTargetSet): BenchTargetName[] {
   if (targetSet === "hash") {
     return ["non_cryptographic_hash", "cryptographic_hash"];
   }
-  return ["u64_generation", "bytes_generation"];
+  if (targetSet === "prng") {
+    return ["u64_generation", "bytes_generation"];
+  }
+  return [targetSet];
 }
 
 export function defaultOutputFor(targetName: BenchTargetName): string {
@@ -151,7 +156,11 @@ export function runBench(argv: readonly string[]): void {
 }
 
 function isBenchTargetSet(value: string | undefined): value is BenchTargetSet {
-  return value === "hash" || value === "prng" || value === "all";
+  return value === "hash" || value === "prng" || value === "all" || isBenchTargetName(value);
+}
+
+function isBenchTargetName(value: string | undefined): value is BenchTargetName {
+  return value !== undefined && value in targets;
 }
 
 if (process.argv[1]?.endsWith("/bench-run.ts")) {

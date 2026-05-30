@@ -64,16 +64,16 @@ function deploy(argv: readonly string[]): void {
     );
   }
 
-  const wranglerArgs = [
-    "deploy",
-    "--config",
-    "../wrangler.jsonc",
-  ];
   if (args.preview) {
-    wranglerArgs.push("--env", "preview");
-  } else {
-    wranglerArgs.push("--env", "");
+    const wranglerArgs = ["versions", "upload", "--config", "../wrangler.jsonc"];
+    if (args.dryRun) {
+      wranglerArgs.push("--dry-run");
+    }
+    runCommand(wrangler, wranglerArgs, { cwd: workerRoot, env: wranglerEnv });
+    return;
   }
+
+  const wranglerArgs = ["deploy", "--config", "../wrangler.jsonc"];
   if (args.dryRun) {
     wranglerArgs.push("--dry-run");
   }

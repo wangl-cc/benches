@@ -11,10 +11,17 @@ export function SegmentedControl({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="segmented-control">
+    <div className="segmented-control" role="radiogroup">
       <div className="segmented-options">
         {values.map((value) => (
-          <button key={value} type="button" className={value === activeValue ? "active" : ""} onClick={() => onChange(value)}>
+          <button
+            key={value}
+            type="button"
+            className={value === activeValue ? "active" : ""}
+            role="radio"
+            aria-checked={value === activeValue}
+            onClick={() => onChange(value)}
+          >
             {labelize(value)}
           </button>
         ))}

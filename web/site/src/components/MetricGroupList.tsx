@@ -50,7 +50,12 @@ export function MetricRow({
   }
 
   return (
-    <button type="button" className={classes.join(" ")} onClick={onActivate}>
+    <button
+      type="button"
+      className={classes.join(" ")}
+      aria-label={screenReaderDetail ?? `${label}: ${String(value)}`}
+      onClick={onActivate}
+    >
       <span className="metric-label">{label}</span>
       <span className={`metric-track metric-track--${variant}`}>
         {children}

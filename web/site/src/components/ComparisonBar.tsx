@@ -52,7 +52,7 @@ export function ComparisonBar({
         <button
           type="button"
           className="platform-trigger"
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           aria-expanded={platformMenuOpen}
           onClick={() => setPlatformMenuOpen((open) => !open)}
         >
@@ -63,9 +63,8 @@ export function ComparisonBar({
         {platformMenuOpen ? (
           <div
             className="platform-menu"
-            role="listbox"
+            role="group"
             aria-label="Platform comparison set"
-            aria-multiselectable="true"
           >
             {hosts.map((host) => {
               const active = selectedHostIds.includes(host.id);
@@ -75,9 +74,9 @@ export function ComparisonBar({
                   key={host.id}
                   type="button"
                   className={active ? "platform-menu-item active" : "platform-menu-item"}
-                  role="option"
-                  aria-selected={active}
+                  aria-pressed={active}
                   disabled={!canToggle}
+                  title={`${host.label} · ${host.environment.os} · ${host.id}`}
                   onClick={() => {
                     if (canToggle) {
                       onHostToggle(host.id);
@@ -87,7 +86,7 @@ export function ComparisonBar({
                   <span className="check-box">{active ? "✓" : ""}</span>
                   <span>
                     <strong>{host.label}</strong>
-                    <small>{host.cpu}</small>
+                    <small>{host.environment.os} · {host.id}</small>
                   </span>
                 </button>
               );

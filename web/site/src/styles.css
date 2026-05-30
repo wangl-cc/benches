@@ -55,6 +55,12 @@
     background: var(--bg);
   }
 
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
   button,
   input,
   select {
@@ -283,7 +289,7 @@
     position: absolute;
     z-index: 30;
     top: calc(100% + 6px);
-    left: 0;
+    right: 0;
     display: grid;
     width: min(390px, calc(100vw - 32px));
     max-height: 340px;
@@ -754,6 +760,11 @@
     width: 100%;
     min-height: 0;
     height: 278px;
+    overflow: hidden;
+  }
+
+  .trend-chart > div {
+    min-width: 0;
   }
 
   .trend-point {
@@ -1106,6 +1117,14 @@
 
     .trend-chart {
       height: 280px;
+    }
+
+    .trend-body {
+      min-width: 0;
+    }
+
+    .platform-menu {
+      width: min(340px, calc(100vw - 24px));
     }
 
     .panel-title {

@@ -46,27 +46,51 @@ function latestRunsForKnownBenchmarks(runs: BenchmarkRun[]): BenchmarkRun[] {
 }
 
 async function fetchResultsForRuns(runs: readonly BenchmarkRun[]): Promise<ResultsResponse> {
+  const pages = await mapWithConcurrency(runs, 4, fetchResultsForRun);
+  return { results: pages.flatMap((page) => page.results) };
+}
+
+async function fetchResultsForRun(run: BenchmarkRun): Promise<ResultsResponse> {
   const pageSize = 1000;
   const results: BenchmarkResult[] = [];
-  for (const run of runs) {
-    let offset = 0;
-    for (;;) {
-      const response = await fetch(
-        `/api/results?runId=${encodeURIComponent(run.id)}&limit=${pageSize}&offset=${offset}`,
-      );
-      if (!response.ok) {
-        throw new Error(`API returned ${response.status} for results of ${run.id}`);
-      }
-      const page = (await response.json()) as ResultsResponse;
-      const pageRows = Array.isArray(page) ? page : page.results;
-      results.push(...pageRows);
-      if (pageRows.length < pageSize) {
-        break;
-      }
-      offset += pageSize;
+  let offset = 0;
+  for (;;) {
+    const response = await fetch(
+      `/api/results?runId=${encodeURIComponent(run.id)}&limit=${pageSize}&offset=${offset}`,
+    );
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status} for results of ${run.id}`);
     }
+    const page = (await response.json()) as ResultsResponse;
+    const pageRows = Array.isArray(page) ? page : page.results;
+    results.push(...pageRows);
+    if (pageRows.length < pageSize) {
+      break;
+    }
+    offset += pageSize;
   }
   return { results };
+}
+
+async function mapWithConcurrency<T, U>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) {
+        return;
+      }
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function normalizeRuns(response: RunsResponse): BenchmarkRun[] {

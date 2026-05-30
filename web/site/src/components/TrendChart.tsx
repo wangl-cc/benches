@@ -75,7 +75,9 @@ export function TrendChart({
     .sort((leftPoint, rightPoint) => leftPoint.x - rightPoint.x);
   const selectableInputs = uniqueBy(inputCandidates, (point) => point.label);
   const selectedInput = selectableInputs.find((input) => input.label === representativeWorkload);
-  const activeRankLabel = activeWorkload.startsWith(AUTO_WORKLOAD) ? `Auto: ${representativeWorkload}` : representativeWorkload;
+  const activeRankLabel = activeWorkload.startsWith(AUTO_WORKLOAD)
+    ? representativeWorkload ? `Auto: ${representativeWorkload}` : AUTO_WORKLOAD
+    : representativeWorkload;
   const xValues = uniqueNumbers(allPoints.map((point) => point.x));
   const yValues = uniqueNumbers(allPoints.map((point) => point.y));
   const xTickValues = sparseTicks(xValues, MAX_X_TICKS);
@@ -139,7 +141,7 @@ export function TrendChart({
             <ResponsiveLine<NivoTrendSeries>
               data={chartData}
               theme={benchmarkChartTheme}
-              margin={{ top: 26, right: 18, bottom: 43, left: 70 }}
+              margin={{ top: 24, right: 32, bottom: 42, left: 58 }}
               xScale={scaleSpec(xScaleMode)}
               yScale={scaleSpec(yScaleMode, yDomain.min, yDomain.max)}
               axisBottom={{
@@ -261,7 +263,7 @@ function RankSizePicker({
         <button
           type="button"
           className="rank-size-trigger"
-          aria-haspopup="listbox"
+          aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen((current) => !current)}
         >
@@ -269,7 +271,7 @@ function RankSizePicker({
           <ChevronDown className="size-4" />
         </button>
         {open ? (
-          <div className="rank-size-menu" role="listbox" aria-label="Rank size">
+          <div className="rank-size-menu" role="group" aria-label="Rank size">
             {workloads.map((workload) => {
               const active = workload === value;
               return (
@@ -277,14 +279,13 @@ function RankSizePicker({
                   key={workload}
                   type="button"
                   className={active ? "rank-size-menu-item active" : "rank-size-menu-item"}
-                  role="option"
-                  aria-selected={active}
+                  aria-pressed={active}
                   onClick={() => {
                     onChange(workload);
                     setOpen(false);
                   }}
                 >
-                  <span>{workload.startsWith(AUTO_WORKLOAD) ? label : workload}</span>
+                  <span>{workload}</span>
                 </button>
               );
             })}

@@ -65,13 +65,8 @@ Create the D1 database:
 pnpm exec wrangler d1 create benchmark-results
 ```
 
-Copy the returned database id into `wrangler.jsonc` in both places:
-
-- top-level `d1_databases[0].database_id`;
-- `env.preview.d1_databases[0].database_id`.
-
-Wrangler environments do not inherit D1 bindings, so preview must repeat the D1
-binding even though it intentionally points at the same database.
+Copy the returned database id into top-level
+`d1_databases[0].database_id` in `wrangler.jsonc`.
 
 Apply the initial production schema:
 
@@ -132,16 +127,14 @@ as one JSON array:
 ]
 ```
 
-Save the same JSON array as a Worker secret for both default and preview
-environments:
+Save the same JSON array as a Worker secret:
 
 ```bash
 pnpm exec wrangler secret put CF_ACCESS_TOKENS
-pnpm exec wrangler secret put CF_ACCESS_TOKENS --env preview
 ```
 
 To revoke one machine, delete that machine's Cloudflare Access service token,
-remove its entry from the JSON array, and update both Worker secrets.
+remove its entry from the JSON array, and update the Worker secret.
 
 The frontend never receives upload secrets. Only local scripts or CI secrets
 can call `POST /api/runs`.
@@ -154,10 +147,11 @@ Preview deploys use:
 pnpm run deploy -- --preview
 ```
 
-Preview uses Wrangler environment `preview`, shares the production D1 database,
-and can write when the request carries a valid upload token. It is intentionally
-not isolated. In normal use, preview is effectively read-mostly because the
-public frontend has no upload secret.
+Preview uploads a Worker version with `wrangler versions upload`; it does not
+promote a deployment and does not run migrations. Preview shares the production
+D1 database and can write when the request carries a valid upload token. It is
+intentionally not isolated. In normal use, preview is effectively read-mostly
+because the public frontend has no upload secret.
 
 ## Custom Domain
 

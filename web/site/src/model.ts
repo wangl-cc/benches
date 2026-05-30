@@ -30,12 +30,15 @@ const platformDashes = ["", "6 4", "2 4", "10 4"];
 export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState): ExplorerModel {
   const runById = new Map(data.runs.map((run) => [run.id, run]));
   const latestRunByHost = latestRunsByHostForBenchmark(data.runs, data.results, state.benchmarkName);
-  const hosts = uniqueBy([...latestRunByHost.values()], (run) => run.host.id).map((run) => ({
-    id: run.host.id,
-    label: run.host.label,
-    cpu: run.host.environment.cpu,
-    environment: run.host.environment,
-  }));
+  const hosts = disambiguateHosts(
+    uniqueBy([...latestRunByHost.values()], (run) => run.host.id).map((run) => ({
+      id: run.host.id,
+      label: run.host.label,
+      cpu: run.host.environment.cpu,
+      environment: run.host.environment,
+    })),
+  );
+  const hostLabels = new Map(hosts.map((host) => [host.id, host.label]));
   const selectedHostIds = reconcileSelection(
     state.platformIds,
     hosts.map((host) => host.id),
@@ -67,7 +70,7 @@ export function buildExplorerModel(data: ExplorerData, state: ExplorerModelState
     return {
       ...result,
       hostId: run?.host.id ?? "unknown",
-      hostLabel: run?.host.label ?? "Unknown platform",
+      hostLabel: run ? hostLabels.get(run.host.id) ?? run.host.label : "Unknown platform",
       runLabel: run ? compactRunLabel(run) : "",
     };
   };
@@ -353,8 +356,25 @@ function effectiveAlgorithmSelection(
   if (!query) {
     return selectedAlgorithms;
   }
-  const selectedMatches = selectedAlgorithms.filter((algorithm) => matchingAlgorithms.includes(algorithm));
-  return selectedMatches.length > 0 ? selectedMatches : matchingAlgorithms;
+  return selectedAlgorithms.filter((algorithm) => matchingAlgorithms.includes(algorithm));
+}
+
+function disambiguateHosts<T extends { readonly id: string; readonly label: string }>(
+  hosts: readonly T[],
+): T[] {
+  const labelCounts = new Map<string, number>();
+  for (const host of hosts) {
+    labelCounts.set(host.label, (labelCounts.get(host.label) ?? 0) + 1);
+  }
+  return hosts.map((host) => {
+    if ((labelCounts.get(host.label) ?? 0) <= 1) {
+      return host;
+    }
+    return {
+      ...host,
+      label: `${host.label} · ${host.id}`,
+    };
+  });
 }
 
 function singleWorkloadDescription(rows: ResultRow[]): string | undefined {

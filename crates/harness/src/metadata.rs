@@ -4,7 +4,10 @@ use std::{env::consts, process::Command};
 
 use serde::Serialize;
 
-use crate::{HarnessError, Result, util::workspace_root};
+use crate::{
+    HarnessError, Result,
+    util::{slugify, workspace_root},
+};
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +20,7 @@ pub(crate) struct GitInfo {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HostInfo {
+    id: String,
     os: String,
     arch: String,
     cpu: String,
@@ -47,10 +51,14 @@ impl HostInfo {
     pub(crate) fn detect() -> Result<Self> {
         let compiler = command_stdout("rustc", &["-Vv"])?;
         let (rustc, llvm) = parse_rustc_verbose(&compiler)?;
+        let os = consts::OS.to_owned();
+        let arch = consts::ARCH.to_owned();
+        let cpu = detect_cpu()?;
         Ok(Self {
-            os: consts::OS.to_owned(),
-            arch: consts::ARCH.to_owned(),
-            cpu: detect_cpu()?,
+            id: slugify(&format!("{cpu}-{os}-{arch}")),
+            os,
+            arch,
+            cpu,
             kernel: require_non_empty("uname -sr", command_stdout("uname", &["-sr"])?)?,
             rustc,
             llvm,
@@ -215,6 +223,7 @@ pub(crate) mod tests {
 
     pub(crate) fn test_host() -> HostInfo {
         HostInfo {
+            id: "test-host".to_owned(),
             os: "test".to_owned(),
             arch: "test".to_owned(),
             cpu: "test".to_owned(),

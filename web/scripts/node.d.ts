@@ -47,6 +47,10 @@ declare module "node:os" {
   export function platform(): string;
 }
 
+declare module "node:path" {
+  export function resolve(path: string): string;
+}
+
 declare module "node:readline/promises" {
   export function createInterface(options: {
     readonly input: unknown;

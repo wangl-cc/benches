@@ -69,6 +69,7 @@ For narrower runs:
 pnpm --dir web smoke -- --target hash
 pnpm --dir web smoke -- --target prng
 pnpm --dir web bench -- --target hash
+pnpm --dir web bench -- --target cryptographic_hash --out /tmp/hash-run.json
 ```
 
 The script runs standard Cargo bench targets from the repository root, so users
@@ -83,7 +84,7 @@ Useful harness options:
 --warmup-ms 1000         # override warmup duration
 --calibration-ms 300     # override calibration minimum
 --target-sample-ms 50    # override target sample window
---out <path>             # only use with one selected bench target
+--out <path>             # only with one bench target, e.g. cryptographic_hash
 ```
 
 Production ingest rejects `quick` runs. Use quick only for local validation.
@@ -146,8 +147,9 @@ For Cloudflare Workers Builds, configure:
 | Non-production branch deploy command | `pnpm run deploy -- --preview` |
 
 Production deploys build the site, apply pending remote D1 migrations, and
-deploy the Worker. Preview deploys use the `preview` Wrangler environment and
-the same D1 database as production. Preview is intentionally not data-isolated.
+deploy the Worker. Preview deploys upload a Worker version without promoting it
+and use the same D1 database as production. Preview is intentionally not
+data-isolated.
 
 ## Validation Commands
 
