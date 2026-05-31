@@ -1,4 +1,10 @@
-import { type BenchRun, type JsonObject } from "../packages/bench-schema/src/index.ts";
+import {
+  type BenchRun,
+  canonicalJson,
+  type JsonObject,
+  parseBenchRunJson,
+  validationMessage,
+} from "../packages/bench-schema/src/index.ts";
 import { hashRun, publishRun } from "./publish.ts";
 
 type SeedHost = {
@@ -90,6 +96,7 @@ async function main(): Promise<void> {
   const config = readSeedConfig();
   const runs = hosts.flatMap((host) => groups.map((group) => buildRun(host, group)));
   for (const run of runs) {
+    validateSeedRun(run);
     const contentHash = await hashRun(run);
     const response = await publishRun(config, run, contentHash);
     if (response.status < 200 || response.status >= 300) {
@@ -166,12 +173,22 @@ function sampleRows(
   return Array.from({ length: 50 }, (_, index) => {
     const wave = Math.sin((index + 1) * 1.7) * relativeStdDev;
     const adjustedThroughput = throughput * (1 + wave);
-    const elapsedNs = (inputAmount * iterations * 1_000_000_000) / adjustedThroughput;
+    const elapsedNs = Math.max(
+      1,
+      Math.round((inputAmount * iterations * 1_000_000_000) / adjustedThroughput),
+    );
     return {
       iterations,
       elapsedNs,
     };
   });
+}
+
+function validateSeedRun(run: BenchRun): void {
+  const parsed = parseBenchRunJson(canonicalJson(run));
+  if (!parsed.ok) {
+    throw new Error(`invalid seed run ${run.runId}\n${validationMessage(parsed.issues)}`);
+  }
 }
 
 function throughputValue(
