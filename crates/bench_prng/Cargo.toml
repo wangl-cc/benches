@@ -1,0 +1,19 @@
+[package]
+name = "bench_prng"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+harness = { path = "../harness" }
+rand = { workspace = true }
+rand_pcg = { workspace = true }
+rand_xoshiro = { workspace = true }
+
+[[bench]]
+name = "u64_generation"
+harness = false
+
+[[bench]]
+name = "bytes_generation"
+harness = false
