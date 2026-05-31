@@ -9,6 +9,8 @@
     "pnpm": ">=10 <12"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260520.0",
+    "wrangler": "^4.93.1",
     "typescript": "^6.0.3"
   },
   "scripts": {

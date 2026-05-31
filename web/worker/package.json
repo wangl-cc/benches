@@ -8,10 +8,6 @@
     "node": ">=26 <27",
     "pnpm": ">=10 <12"
   },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260520.0",
-    "wrangler": "^4.93.1"
-  },
   "scripts": {
     "dev": "wrangler dev --config ../wrangler.jsonc",
     "deploy": "wrangler deploy --config ../wrangler.jsonc",

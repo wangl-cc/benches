@@ -2,9 +2,9 @@ import { fileURLToPath } from "node:url";
 
 import { runCommand, stripLeadingSeparator } from "./command.ts";
 
-const workerRoot = fileURLToPath(new URL("../worker", import.meta.url));
+const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const wrangler = fileURLToPath(
-  new URL("../worker/node_modules/.bin/wrangler", import.meta.url),
+  new URL("../node_modules/.bin/wrangler", import.meta.url),
 );
 const wranglerEnv = {
   ...process.env,
@@ -30,10 +30,10 @@ function migrate(argv: readonly string[]): void {
       "apply",
       "BENCH_DB",
       "--config",
-      "../wrangler.jsonc",
+      "wrangler.jsonc",
       ...parseMigrateArgs(argv),
     ],
-    { cwd: workerRoot, env: wranglerEnv },
+    { cwd: webRoot, env: wranglerEnv },
   );
 }
 

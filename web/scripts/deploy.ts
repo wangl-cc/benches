@@ -14,9 +14,9 @@ const siteTsc = fileURLToPath(
 const vite = fileURLToPath(
   new URL("../site/node_modules/.bin/vite", import.meta.url),
 );
-const workerRoot = fileURLToPath(new URL("../worker", import.meta.url));
+const webRoot = fileURLToPath(new URL("..", import.meta.url));
 const wrangler = fileURLToPath(
-  new URL("../worker/node_modules/.bin/wrangler", import.meta.url),
+  new URL("../node_modules/.bin/wrangler", import.meta.url),
 );
 const wranglerEnv = {
   ...process.env,
@@ -57,28 +57,28 @@ function deploy(argv: readonly string[]): void {
         "apply",
         "BENCH_DB",
         "--config",
-        "../wrangler.jsonc",
+        "wrangler.jsonc",
         "--remote",
       ],
-      { cwd: workerRoot, env: wranglerEnv },
+      { cwd: webRoot, env: wranglerEnv },
     );
   }
 
   if (args.preview) {
-    const wranglerArgs = ["versions", "upload", "--config", "../wrangler.jsonc"];
+    const wranglerArgs = ["versions", "upload", "--config", "wrangler.jsonc"];
     if (args.dryRun) {
       wranglerArgs.push("--dry-run");
     }
-    runCommand(wrangler, wranglerArgs, { cwd: workerRoot, env: wranglerEnv });
+    runCommand(wrangler, wranglerArgs, { cwd: webRoot, env: wranglerEnv });
     return;
   }
 
-  const wranglerArgs = ["deploy", "--config", "../wrangler.jsonc"];
+  const wranglerArgs = ["deploy", "--config", "wrangler.jsonc"];
   if (args.dryRun) {
     wranglerArgs.push("--dry-run");
   }
 
-  runCommand(wrangler, wranglerArgs, { cwd: workerRoot, env: wranglerEnv });
+  runCommand(wrangler, wranglerArgs, { cwd: webRoot, env: wranglerEnv });
 }
 
 if (process.argv[1]?.endsWith("/deploy.ts")) {
